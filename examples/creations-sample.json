@@ -1,0 +1,554 @@
+{
+  "posts": [
+    {
+      "id": "night-radio-3",
+      "title": "夜航电台 · 第 3 期",
+      "creator": "Aster",
+      "creatorId": "aster",
+      "date": "2026-10-18",
+      "tags": [
+        "电台",
+        "氛围",
+        "录音"
+      ],
+      "cover": "assets/creations/covers/night-radio.svg",
+      "excerpt": "凌晨两点的城市底噪,和一段适合戴耳机听的 8 分钟录音。",
+      "body": [
+        "这期没有脚本,只是在窗边录了四十分钟,再剪成八分钟。开场能听到楼下偶尔经过的车,后面慢慢安静下来。",
+        "如果你也在夜里工作,可以把它当背景声;附件里有文字稿和制作名单。"
+      ],
+      "gallery": [
+        {
+          "src": "assets/creations/gallery/night-radio-1.svg",
+          "alt": "夜航电台的抽象封面一"
+        },
+        {
+          "src": "assets/creations/gallery/night-radio-2.svg",
+          "alt": "夜航电台的抽象封面二"
+        }
+      ],
+      "attachments": [
+        {
+          "type": "description",
+          "name": "description.md",
+          "src": "assets/creations/descriptions/night-radio-3/description.md"
+        },
+        {
+          "type": "description",
+          "audioFor": "night-radio.wav",
+          "name": "night-radio-description.md",
+          "src": "assets/creations/descriptions/night-radio-3/night-radio-description.md"
+        },
+        {
+          "type": "audio",
+          "name": "night-radio.wav",
+          "title": "夜航电台 · 第 3 期",
+          "notes": [
+            196,
+            246.94,
+            293.66
+          ],
+          "duration": "0:08",
+          "durationSeconds": 8
+        },
+        {
+          "type": "file",
+          "name": "night-radio-transcript.md",
+          "src": "assets/creations/files/night-radio-transcript.md"
+        },
+        {
+          "type": "file",
+          "name": "night-radio-credits.txt",
+          "src": "assets/creations/files/night-radio-credits.txt"
+        }
+      ]
+    },
+    {
+      "id": "signal-tower",
+      "title": "海边的信号塔",
+      "creator": "Moss",
+      "creatorId": "moss",
+      "date": "2026-10-12",
+      "tags": [
+        "插画",
+        "过程"
+      ],
+      "cover": "assets/creations/covers/signal-tower.svg",
+      "excerpt": "一组关于信号塔、雾和潮汐的插画,附取色记录。",
+      "body": [
+        "想画一座「会呼吸」的信号塔。画面里的横线来自灯塔栏杆,重复的节奏会让它看起来像在缓慢呼吸。",
+        "这组还在继续,先把三张过程图和 palette 放上来。"
+      ],
+      "gallery": [
+        {
+          "src": "assets/creations/gallery/signal-tower-1.svg",
+          "alt": "信号塔插画一"
+        },
+        {
+          "src": "assets/creations/gallery/signal-tower-2.svg",
+          "alt": "信号塔插画二"
+        },
+        {
+          "src": "assets/creations/gallery/signal-tower-3.svg",
+          "alt": "信号塔插画三"
+        }
+      ],
+      "attachments": [
+        {
+          "type": "description",
+          "name": "description.md",
+          "src": "assets/creations/descriptions/signal-tower/description.md"
+        },
+        {
+          "type": "video",
+          "name": "visual-loop.mp4",
+          "title": "海边的信号塔 · 视觉循环",
+          "src": "assets/creations/video/visual-loop.mp4",
+          "poster": "assets/creations/covers/signal-tower.svg",
+          "duration": "0:03"
+        },
+        {
+          "type": "file",
+          "name": "signal-tower-notes.md",
+          "src": "assets/creations/files/signal-tower-notes.md"
+        },
+        {
+          "type": "file",
+          "name": "signal-tower-palette.json",
+          "src": "assets/creations/files/signal-tower-palette.json"
+        }
+      ]
+    },
+    {
+      "id": "lofi-loop",
+      "title": "Lo-fi 循环包",
+      "creator": "Mori",
+      "creatorId": "mori",
+      "date": "2026-10-08",
+      "tags": [
+        "音乐",
+        "循环"
+      ],
+      "cover": "assets/creations/covers/lofi-loop.svg",
+      "excerpt": "120 BPM 的四小节循环,附和弦进行和制作笔记。",
+      "body": [
+        "最近在给一个夜间写作的项目做背景音乐,先把循环骨架放出来。鼓组还没混,但和弦走向基本定了。",
+        "点击下面的音频会直接进 Monochrome 的播放器;需要工程文件的话看附件里的和弦说明。"
+      ],
+      "gallery": [],
+      "attachments": [
+        {
+          "type": "description",
+          "name": "description.md",
+          "src": "assets/creations/descriptions/lofi-loop/description.md"
+        },
+        {
+          "type": "description",
+          "audioFor": "lofi-loop.wav",
+          "name": "lofi-loop-description.md",
+          "src": "assets/creations/descriptions/lofi-loop/lofi-loop-description.md"
+        },
+        {
+          "type": "audio",
+          "name": "lofi-loop.wav",
+          "title": "Lo-fi 循环包 · 试听",
+          "notes": [
+            174.61,
+            220,
+            261.63,
+            329.63
+          ],
+          "duration": "0:08",
+          "durationSeconds": 8
+        },
+        {
+          "type": "file",
+          "name": "lofi-loop-notes.md",
+          "src": "assets/creations/files/lofi-loop-notes.md"
+        },
+        {
+          "type": "file",
+          "name": "lofi-loop-chords.txt",
+          "src": "assets/creations/files/lofi-loop-chords.txt"
+        }
+      ]
+    },
+    {
+      "id": "specimen-room",
+      "title": "标本室",
+      "nsfw": true,
+      "creator": "Kite",
+      "creatorId": "kite",
+      "date": "2026-09-30",
+      "tags": [
+        "声音",
+        "实验"
+      ],
+      "cover": "assets/creations/covers/specimen-room.svg",
+      "excerpt": "一段「安静但不空」的房间录音,以及现场笔记。",
+      "body": [
+        "把窗户关上之后,低频少了一层,但房间的混响反而更明显。这段八秒的样本是一个更大作品的开头。",
+        "图片和现场笔记都放在下面了。"
+      ],
+      "gallery": [
+        {
+          "src": "assets/creations/gallery/specimen-1.svg",
+          "alt": "标本室抽象图"
+        }
+      ],
+      "attachments": [
+        {
+          "type": "description",
+          "name": "description.md",
+          "src": "assets/creations/descriptions/specimen-room/description.md"
+        },
+        {
+          "type": "description",
+          "audioFor": "specimen.wav",
+          "name": "specimen-description.md",
+          "src": "assets/creations/descriptions/specimen-room/specimen-description.md"
+        },
+        {
+          "type": "audio",
+          "name": "specimen.wav",
+          "title": "标本室 · 房间录音",
+          "notes": [
+            164.81,
+            207.65,
+            246.94
+          ],
+          "duration": "0:08",
+          "durationSeconds": 8
+        },
+        {
+          "type": "file",
+          "name": "specimen-field-notes.md",
+          "src": "assets/creations/files/specimen-field-notes.md"
+        }
+      ]
+    },
+    {
+      "id": "field-recordings",
+      "title": "雨棚下的三次录音",
+      "creator": "Kite",
+      "creatorId": "kite",
+      "date": "2026-09-24",
+      "tags": [
+        "声音",
+        "实验",
+        "雨声"
+      ],
+      "cover": "assets/creations/covers/field-recordings.svg",
+      "excerpt": "三次不同时间的雨棚录音,包含远雷、滴水和一段很轻的街道底噪。",
+      "body": [
+        "同一场雨,在 19:40、20:15 和 21:02 各录了一次。雨量在变,远处的车流也在变。",
+        "三条音频都会进入原生播放器,可以按顺序听,也可以单独加入队列。"
+      ],
+      "gallery": [],
+      "attachments": [
+        {
+          "type": "description",
+          "name": "description.md",
+          "src": "assets/creations/descriptions/field-recordings/description.md"
+        },
+        {
+          "type": "audio",
+          "name": "rain-canopy-a.wav",
+          "title": "雨棚 · 19:40",
+          "notes": [
+            164.81,
+            196,
+            246.94
+          ],
+          "duration": "0:08",
+          "durationSeconds": 8
+        },
+        {
+          "type": "audio",
+          "name": "rain-canopy-b.wav",
+          "title": "雨棚 · 20:15",
+          "notes": [
+            174.61,
+            220,
+            261.63
+          ],
+          "duration": "0:08",
+          "durationSeconds": 8
+        },
+        {
+          "type": "audio",
+          "name": "rain-canopy-c.wav",
+          "title": "雨棚 · 21:02",
+          "notes": [
+            146.83,
+            196,
+            293.66
+          ],
+          "duration": "0:08",
+          "durationSeconds": 8
+        },
+        {
+          "type": "file",
+          "kind": "text",
+          "name": "recording-notes.md",
+          "src": "assets/creations/files/recording-notes.md"
+        }
+      ]
+    },
+    {
+      "id": "mixed-kit",
+      "title": "夜行素材包 · Vol.1",
+      "creator": "Mori",
+      "creatorId": "mori",
+      "date": "2026-09-18",
+      "tags": [
+        "混合",
+        "素材",
+        "下载"
+      ],
+      "cover": "assets/creations/covers/mixed-kit.svg",
+      "excerpt": "音频、视频、工程笔记和可下载压缩包混在一起的一期素材包。",
+      "body": [
+        "把最近零散录的东西整理成一个可下载的素材包。里面有两条短音频、一个循环视频、工程笔记和压缩包。",
+        "音频会进入原生播放器队列;视频在详情页内嵌播放;zip 和笔记保留普通下载入口。"
+      ],
+      "gallery": [
+        {
+          "src": "assets/creations/gallery/mixed-kit-1.svg",
+          "alt": "夜行素材包波形图"
+        }
+      ],
+      "attachments": [
+        {
+          "type": "description",
+          "name": "description.md",
+          "src": "assets/creations/descriptions/mixed-kit/description.md"
+        },
+        {
+          "type": "audio",
+          "name": "mixed-kit-intro.wav",
+          "title": "素材包 · 开场",
+          "notes": [
+            130.81,
+            164.81,
+            196
+          ],
+          "duration": "0:08",
+          "durationSeconds": 8
+        },
+        {
+          "type": "audio",
+          "name": "mixed-kit-outro.wav",
+          "title": "素材包 · 收尾",
+          "notes": [
+            220,
+            261.63,
+            329.63
+          ],
+          "duration": "0:08",
+          "durationSeconds": 8
+        },
+        {
+          "type": "video",
+          "name": "visual-loop.mp4",
+          "title": "素材包 · 循环视频",
+          "src": "assets/creations/video/visual-loop.mp4",
+          "poster": "assets/creations/covers/mixed-kit.svg",
+          "duration": "0:03"
+        },
+        {
+          "type": "file",
+          "kind": "archive",
+          "mime": "application/zip",
+          "name": "mixed-kit-stems.zip",
+          "src": "assets/creations/files/mixed-kit-stems.zip"
+        },
+        {
+          "type": "file",
+          "kind": "text",
+          "name": "mixed-kit-notes.md",
+          "src": "assets/creations/files/mixed-kit-notes.md"
+        }
+      ]
+    },
+    {
+      "id": "motion-study",
+      "title": "镜头练习 · 雨棚循环",
+      "creator": "Kite",
+      "creatorId": "kite",
+      "date": "2026-09-12",
+      "tags": [
+        "视频",
+        "过程",
+        "镜头"
+      ],
+      "cover": "assets/creations/covers/motion-study.svg",
+      "excerpt": "把雨棚边缘的水滴做成一个很短的循环,测试视频内嵌播放和静音封面。",
+      "body": [
+        "把雨棚边缘的水滴做成一个很短的循环,测试视频在创作详情里的内嵌播放和静音封面。",
+        "画面故意留了大量负空间,方便后面叠字或放声音。"
+      ],
+      "gallery": [
+        {
+          "src": "assets/creations/gallery/motion-study-1.svg",
+          "alt": "镜头练习构图"
+        }
+      ],
+      "attachments": [
+        {
+          "type": "description",
+          "name": "description.md",
+          "src": "assets/creations/descriptions/motion-study/description.md"
+        },
+        {
+          "type": "video",
+          "name": "visual-loop.mp4",
+          "title": "雨棚循环",
+          "src": "assets/creations/video/visual-loop.mp4",
+          "poster": "assets/creations/covers/motion-study.svg",
+          "duration": "0:03"
+        },
+        {
+          "type": "file",
+          "kind": "text",
+          "name": "motion-study-notes.md",
+          "src": "assets/creations/files/motion-study-notes.md"
+        }
+      ]
+    },
+    {
+      "id": "zine-archive",
+      "title": "折页档案 · 01",
+      "creator": "Moss",
+      "creatorId": "moss",
+      "date": "2026-09-06",
+      "tags": [
+        "档案",
+        "排版",
+        "下载"
+      ],
+      "cover": "assets/creations/covers/zine-archive.svg",
+      "excerpt": "一次折页排版实验,附压缩包、导出说明和元数据。没有音频和视频。",
+      "body": [
+        "一次折页排版实验,附件里是导出的说明和可下载压缩包。",
+        "没有音频和视频,用来测试纯文档型创作的详情和附件下载。"
+      ],
+      "gallery": [
+        {
+          "src": "assets/creations/gallery/signal-tower-2.svg",
+          "alt": "折页档案内页一"
+        },
+        {
+          "src": "assets/creations/gallery/signal-tower-3.svg",
+          "alt": "折页档案内页二"
+        }
+      ],
+      "attachments": [
+        {
+          "type": "description",
+          "name": "description.md",
+          "src": "assets/creations/descriptions/zine-archive/description.md"
+        },
+        {
+          "type": "file",
+          "kind": "archive",
+          "mime": "application/zip",
+          "name": "zine-archive.zip",
+          "src": "assets/creations/files/zine-archive.zip"
+        },
+        {
+          "type": "file",
+          "kind": "text",
+          "name": "zine-archive-notes.md",
+          "src": "assets/creations/files/zine-archive-notes.md"
+        },
+        {
+          "type": "file",
+          "kind": "text",
+          "name": "zine-archive-meta.json",
+          "src": "assets/creations/files/zine-archive-meta.json"
+        }
+      ]
+    },
+    {
+      "id": "tide-atlas",
+      "title": "潮汐采样图集",
+      "creator": "Moss",
+      "creatorId": "moss",
+      "date": "2026-08-29",
+      "tags": [
+        "摄影",
+        "图集",
+        "潮汐"
+      ],
+      "cover": "assets/creations/covers/tide-atlas.svg",
+      "excerpt": "一组只有图片和图注的潮汐采样,用来测试无附件创作的详情阅读。",
+      "body": [
+        "退潮之后留在礁石上的水痕,被拍成一组连续的图集。",
+        "这一篇没有附件,只有图片和正文,用来检查纯图集创作的排版。"
+      ],
+      "gallery": [
+        {
+          "src": "assets/creations/gallery/signal-tower-1.svg",
+          "alt": "潮汐采样一"
+        },
+        {
+          "src": "assets/creations/gallery/signal-tower-2.svg",
+          "alt": "潮汐采样二"
+        },
+        {
+          "src": "assets/creations/gallery/signal-tower-3.svg",
+          "alt": "潮汐采样三"
+        }
+      ],
+      "attachments": []
+    }
+  ],
+  "creators": {
+    "aster": {
+      "id": "aster",
+      "name": "Aster",
+      "handle": "@aster",
+      "bio": "夜间录音与电台。喜欢窗边的低频、旧磁带和不太干净的混响。",
+      "avatar": "assets/creations/creators/aster.svg",
+      "tags": [
+        "电台",
+        "氛围",
+        "录音"
+      ]
+    },
+    "moss": {
+      "id": "moss",
+      "name": "Moss",
+      "handle": "@moss",
+      "bio": "插画与视觉笔记。画信号塔、雾、潮汐,以及所有会发光的东西。",
+      "avatar": "assets/creations/creators/moss.svg",
+      "tags": [
+        "插画",
+        "过程"
+      ]
+    },
+    "mori": {
+      "id": "mori",
+      "name": "Mori",
+      "handle": "@mori",
+      "bio": "Lo-fi 与循环。给写作、通勤和深夜做背景音乐。",
+      "avatar": "assets/creations/creators/mori.svg",
+      "tags": [
+        "音乐",
+        "循环"
+      ]
+    },
+    "kite": {
+      "id": "kite",
+      "name": "Kite",
+      "handle": "@kite",
+      "bio": "声音采集与实验。记录房间、雨声和安静但不空的地方。",
+      "avatar": "assets/creations/creators/kite.svg",
+      "tags": [
+        "声音",
+        "实验"
+      ]
+    }
+  }
+}

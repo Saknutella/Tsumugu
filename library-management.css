@@ -1,0 +1,46 @@
+/* The two libraries use the same management control and destructive action. */
+.library-management {
+    position: relative;
+}
+
+.library-management > summary {
+    display: flex;
+    align-items: center;
+    list-style: none;
+    cursor: pointer;
+}
+
+.library-management > summary::-webkit-details-marker {
+    display: none;
+}
+
+.library-management-menu {
+    position: absolute;
+    right: 0;
+    top: calc(100% + 8px);
+    z-index: 40;
+    min-width: 150px;
+    padding: 8px;
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    background: var(--card);
+    box-shadow: var(--shadow-md);
+}
+
+.library-management-menu > button {
+    width: 100%;
+}
+
+.library-management .library-management-clear {
+    border: 1px solid rgb(239 68 68 / 55%);
+    border-radius: 8px;
+    background: rgb(239 68 68 / 10%);
+    color: #ef4444;
+}
+
+.library-management .library-management-clear:hover,
+.library-management .library-management-clear:focus-visible {
+    border-color: #dc2626;
+    background: #dc2626;
+    color: #fff;
+}

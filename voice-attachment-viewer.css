@@ -1,0 +1,207 @@
+.voice-attachment-overlay {
+    position: fixed;
+    inset: 0;
+    z-index: 10010;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    padding: 24px;
+    background: color-mix(in srgb, var(--background) 85%, transparent);
+}
+
+.voice-attachment-dialog {
+    display: flex;
+    flex-direction: column;
+    width: min(1100px, 100%);
+    max-height: 92dvh;
+    min-height: 180px;
+    overflow: hidden;
+    border: 1px solid var(--border);
+    border-radius: var(--card-radius, 12px);
+    background: var(--card);
+    color: var(--card-foreground);
+}
+
+.voice-attachment-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 16px;
+    padding: 16px;
+}
+
+.voice-attachment-dialog[data-kind='text'] {
+    width: min(860px, 100%);
+}
+
+.voice-attachment-header h2 {
+    min-width: 0;
+    margin: 0;
+    overflow-wrap: anywhere;
+    font-size: 1.1rem;
+}
+
+.voice-attachment-toolbar {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 8px;
+    padding: 0 16px 16px;
+    border-bottom: 1px solid var(--border);
+}
+
+.voice-attachment-content {
+    min-height: 0;
+    padding: 16px;
+    overflow: auto;
+    overscroll-behavior: contain;
+}
+
+.voice-image-viewport {
+    position: relative;
+    width: 100%;
+    height: min(62dvh, 640px);
+    min-height: 160px;
+    overflow: hidden;
+    cursor: grab;
+    touch-action: none;
+    user-select: none;
+    background: color-mix(in srgb, var(--background) 60%, var(--card));
+}
+
+.voice-image-viewport.is-dragging {
+    cursor: grabbing;
+}
+
+.voice-image-viewport img {
+    position: absolute;
+    top: 0;
+    left: 0;
+    display: block;
+    max-width: none;
+    max-height: none;
+    margin: 0;
+    transform-origin: 0 0;
+    user-select: none;
+    pointer-events: none;
+}
+
+.voice-image-zoom {
+    min-width: 3.5em;
+    color: var(--muted-foreground);
+    font-variant-numeric: tabular-nums;
+}
+
+.voice-attachment-content pre {
+    margin: 0;
+    color: inherit;
+    white-space: pre-wrap;
+    overflow-wrap: anywhere;
+    font-family: inherit;
+    line-height: 1.7;
+    user-select: text;
+}
+
+.voice-attachment-status {
+    color: var(--muted-foreground);
+    overflow-wrap: anywhere;
+}
+
+.voice-attachment-status:empty {
+    display: none;
+}
+
+.voice-attachment-hint {
+    margin: 0 0 8px;
+    color: var(--muted-foreground);
+    font-size: 0.75rem;
+}
+
+.voice-attachment-toolbar [aria-pressed='true'] {
+    background: var(--primary);
+    color: var(--primary-foreground);
+}
+
+.voice-attachment-content [hidden] {
+    display: none;
+}
+
+.voice-attachment-markdown {
+    line-height: 1.75;
+    overflow-wrap: anywhere;
+    user-select: text;
+}
+
+.voice-attachment-markdown :is(h2, h3, h4, h5, h6) {
+    margin: 1em 0 0.4em;
+    line-height: 1.35;
+}
+
+.voice-attachment-markdown > :first-child {
+    margin-top: 0;
+}
+
+.voice-attachment-markdown :is(p, ul, ol, blockquote, pre) {
+    margin: 0.7em 0;
+}
+
+.voice-attachment-markdown :is(ul, ol) {
+    padding-left: 1.6em;
+}
+
+.voice-attachment-markdown blockquote {
+    border-left: 3px solid var(--border);
+    padding-left: 1em;
+    color: var(--muted-foreground);
+}
+
+.voice-attachment-markdown :is(code, pre) {
+    font-family: ui-monospace, monospace;
+    font-size: 0.9em;
+    background: var(--secondary);
+    border-radius: var(--radius-sm);
+}
+
+.voice-attachment-markdown code {
+    padding: 0.15em 0.3em;
+}
+
+.voice-attachment-markdown pre {
+    padding: 12px;
+    overflow: auto;
+}
+
+.voice-attachment-markdown pre code {
+    padding: 0;
+}
+
+.voice-attachment-markdown a {
+    color: var(--foreground);
+    text-decoration: underline;
+    text-underline-offset: 3px;
+}
+
+.voice-attachment-content video {
+    display: block;
+    width: 100%;
+    max-height: 62dvh;
+    background: #000;
+}
+
+.voice-attachment-content object {
+    display: block;
+    width: 100%;
+    height: 62dvh;
+    border: 0;
+    background: var(--background);
+}
+
+@media (width <= 600px) {
+    .voice-attachment-overlay {
+        padding: 8px;
+    }
+
+    .voice-attachment-dialog {
+        max-height: 96dvh;
+    }
+}

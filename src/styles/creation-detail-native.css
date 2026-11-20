@@ -1,0 +1,753 @@
+.creation-thumb-hover-card {
+    position: fixed;
+    z-index: 4000;
+    width: min(280px, calc(100vw - 24px));
+    max-height: calc(100vh - 24px);
+    padding: 8px;
+    border: 1px solid var(--border);
+    border-radius: var(--radius-md);
+    background: var(--card);
+    box-shadow: var(--shadow-lg);
+    overflow: hidden;
+    pointer-events: none;
+}
+
+.creation-thumb-hover-card img {
+    display: block;
+    width: 100%;
+    aspect-ratio: 16 / 10;
+    object-fit: contain;
+    border: 1px solid var(--border);
+    border-radius: var(--radius-sm);
+    background: var(--muted);
+}
+
+.creation-thumb-hover-card div {
+    margin-top: 6px;
+    color: var(--foreground);
+    font-size: 0.74rem;
+    font-weight: 600;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+
+/* The library already supplies the album gutter. The native detail fills that column. */
+html body #page-creations #creations-detail.creation-detail-native {
+    width: 100%;
+    max-width: none !important;
+    margin: 0;
+    min-width: 0;
+    container: creation-album / inline-size;
+}
+
+.creation-detail-native .creation-detail-hero {
+    display: flex;
+    align-items: flex-start;
+    gap: clamp(24px, 3cqi, 40px);
+    margin: 8px 0 28px;
+    padding: 0 0 16px;
+    border: 0;
+    background: transparent;
+    border-radius: 0;
+    overflow: visible;
+}
+
+.creation-detail-native .creation-detail-cover-wrap {
+    position: relative;
+    display: block;
+    flex: none;
+    width: clamp(240px, 26vw, 340px);
+    aspect-ratio: 4 / 3;
+    padding: 0;
+    border: 0;
+    border-radius: var(--radius-lg);
+    overflow: hidden;
+    box-shadow: var(--chrome-ring, 0 0 0 1px rgb(0 0 0 / 0.06)), 0 16px 40px rgb(0 0 0 / 0.2);
+    background: var(--muted);
+}
+
+.creation-detail-native .creation-detail-cover-wrap .detail-header-image {
+    position: absolute;
+    cursor: zoom-in;
+    inset: 0;
+    display: block;
+    width: 100%;
+    height: 100%;
+    border-radius: 0;
+    box-shadow: none;
+    object-fit: cover;
+    transition:
+        filter 220ms ease,
+        transform 220ms ease;
+}
+
+.creation-detail-native .detail-header-image:focus-visible {
+    outline-offset: -3px;
+}
+
+.creation-detail-native .creation-detail-cover-wrap:hover .detail-header-image {
+    transform: scale(1.02);
+}
+
+.creation-detail-native .creation-cover-badge {
+    position: absolute;
+    z-index: 1;
+    max-width: calc(100% - 20px);
+    padding: 3px 8px;
+    border-radius: var(--radius-sm);
+    border: 1px solid rgb(255 255 255 / 22%);
+    background: rgb(0 0 0 / 58%);
+    color: white;
+    font-size: 0.72rem;
+    font-weight: 600;
+    font-variant-numeric: tabular-nums;
+    backdrop-filter: blur(6px);
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    pointer-events: none;
+}
+
+.creation-detail-native .creation-cover-badge--code {
+    inset-block-start: 10px;
+    inset-inline-start: 10px;
+}
+
+.creation-detail-native .creation-cover-badge--date {
+    inset-block-end: 10px;
+    inset-inline-end: 10px;
+}
+
+.creation-detail-native .creation-detail-heading {
+    display: flex;
+    flex: 1 1 auto;
+    flex-direction: column;
+    align-items: stretch;
+    min-width: 0;
+    gap: 8px;
+    padding: 0;
+    text-align: start;
+    overflow-wrap: anywhere;
+}
+
+.creation-detail-native .creation-detail-heading .title {
+    display: block;
+    max-width: none;
+    margin: 0;
+    font-size: 1.75rem;
+    font-weight: 760;
+    line-height: 1.2;
+    letter-spacing: -0.02em;
+}
+
+.creation-detail-native .creation-detail-heading .meta {
+    justify-content: flex-start;
+    margin: 0;
+    gap: 6px;
+    font-size: 0.86rem;
+}
+
+.creation-detail-native .creation-creator-rows,
+.creation-detail-native .creation-creator-row {
+    display: flex;
+    gap: 6px;
+}
+
+.creation-detail-native .creation-creator-rows {
+    flex-direction: column;
+    margin-top: 2px;
+}
+
+.creation-detail-native .creation-creator-row {
+    align-items: center;
+    flex-wrap: wrap;
+    font-size: 0.8rem;
+}
+
+.creation-detail-native .creation-creator-label {
+    min-width: 36px;
+    color: var(--muted-foreground);
+}
+
+
+.creation-detail-native .creation-creator-row .creation-detail-avatar {
+    margin: 0;
+}
+
+.creation-detail-native .creation-creator-name {
+    display: inline-flex;
+    align-items: center;
+    min-width: 0;
+    color: var(--foreground);
+    font-size: 1.5rem;
+    font-weight: 700;
+    line-height: 1.15;
+}
+
+.creation-detail-native .creation-creator-name .creation-creator-link,
+.creation-detail-native .creation-creator-name .creation-creator-link:is(:hover, :focus-visible) {
+    text-decoration: none;
+    border-bottom: 0;
+}
+
+.creation-detail-native .creation-creator-profile {
+    display: inline-flex;
+    align-items: center;
+    min-width: 0;
+    gap: 10px;
+    padding-block: 3px;
+    padding-inline: 8px;
+    margin-block: -3px;
+    margin-inline: -8px;
+    border-radius: 9px;
+    color: inherit;
+    text-decoration: none;
+    border-bottom: 0;
+    transition: background-color 160ms ease, box-shadow 160ms ease;
+}
+
+.creation-detail-native .creation-creator-profile:is(:hover, :focus-visible) {
+    background: color-mix(in srgb, var(--foreground) 5%, transparent);
+    box-shadow: inset 0 -1px 0 color-mix(in srgb, var(--foreground) 32%, transparent);
+}
+
+.creation-detail-native .creation-creator-profile:hover .creation-creator-name {
+    text-decoration: none;
+}
+
+.creation-detail-native .creation-creator-profile:focus-visible {
+    outline: 2px solid var(--highlight);
+    outline-offset: 3px;
+    border-radius: var(--radius-sm);
+}
+.creation-detail-native .creation-creator-row--creator {
+    gap: 16px;
+}
+
+.creation-detail-native .creation-creator-row .creation-filter-author {
+    margin: 0;
+}
+
+.creation-detail-native .creation-chip {
+    --creation-chip-color: var(--muted-foreground);
+
+    min-width: 0;
+    padding: 2px 10px;
+    border: 1px solid color-mix(in srgb, var(--creation-chip-color) 35%, var(--border));
+    border-radius: var(--radius-full);
+    background: color-mix(in srgb, var(--creation-chip-color) 12%, var(--card));
+    color: var(--foreground);
+    font-size: 0.76rem;
+    font-weight: 550;
+}
+
+.creation-detail-native .creation-chip--circle {
+    --creation-chip-color: #f59e0b;
+}
+
+.creation-detail-native .creation-chip--artist {
+    --creation-chip-color: #38bdf8;
+}
+
+.creation-detail-native .creation-chip--tag {
+    --creation-chip-color: #a78bfa;
+}
+
+.creation-detail-native .creation-header-actions,
+.creation-detail-native .creation-detail-actions {
+    justify-content: flex-start;
+    gap: 8px;
+    margin: 8px 0 0;
+}
+
+.creation-detail-native .detail-header-actions :is(.btn-primary, .btn-secondary) {
+    width: auto;
+    min-width: 40px;
+    min-height: 40px;
+    height: auto;
+    max-width: 100%;
+    padding: 6px 12px;
+    white-space: normal;
+}
+
+.creation-detail-native .detail-header-actions .creation-action-circle {
+    width: 40px;
+    padding: 0;
+}
+
+.creation-detail-native .creation-format-picker {
+    min-width: 0;
+    max-width: 100%;
+}
+
+.creation-detail-native .creation-format-picker select {
+    max-width: 100%;
+    min-height: 40px;
+    padding-inline: 10px;
+    border: 1px solid var(--border);
+    border-radius: var(--radius-full);
+    background: var(--secondary);
+    color: var(--foreground);
+    font: inherit;
+}
+
+.creation-detail-native .creation-album-main-grid {
+    --creation-file-share: 0.58;
+    --creation-file-min: 340px;
+    --creation-intro-min: 280px;
+    --creation-split-width: 20px;
+
+    /* Exclude the handle from the ratio so 58:42 describes the two visible columns. */
+    --creation-columns-width: calc(100% - var(--creation-split-width));
+    --creation-file-width: clamp(
+        var(--creation-file-min),
+        calc(var(--creation-columns-width) * var(--creation-file-share)),
+        calc(var(--creation-columns-width) - var(--creation-intro-min))
+    );
+
+    display: grid;
+    grid-template-columns: var(--creation-file-width) var(--creation-split-width) minmax(0, 1fr);
+    align-items: stretch;
+}
+
+.creation-detail-native .creation-album-main-grid[data-single-column] {
+    grid-template-columns: minmax(0, 1fr);
+}
+
+.creation-detail-native .creation-tracklist-card {
+    min-width: 0;
+    padding-inline-end: 12px;
+    container: creation-file / inline-size;
+}
+
+.creation-detail-native .creation-intro-flat {
+    min-width: 0;
+    padding-inline-start: 12px;
+    container: creation-intro / inline-size;
+    overflow-wrap: anywhere;
+}
+
+.creation-detail-native [data-single-column] > :is(.creation-tracklist-card, .creation-intro-flat) {
+    padding-inline: 0;
+}
+
+.creation-detail-native .creation-column-head {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: baseline;
+    justify-content: space-between;
+    gap: 6px 12px;
+    margin: 0 0 14px;
+    padding-bottom: 10px;
+    border-bottom: 2px solid var(--border);
+}
+
+.creation-detail-native .creation-column-title {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    margin: 0;
+    color: var(--foreground);
+    font-size: 1.18rem;
+    font-weight: 760;
+    letter-spacing: -0.02em;
+}
+
+.creation-detail-native .creation-column-title small {
+    padding: 1px 8px;
+    border-radius: var(--radius-full);
+    background: var(--secondary);
+    color: var(--muted-foreground);
+    font-size: 0.76rem;
+    font-weight: 600;
+    font-variant-numeric: tabular-nums;
+}
+
+.creation-detail-native .creation-column-sub {
+    color: var(--muted-foreground);
+    font-size: 0.76rem;
+}
+
+.creation-detail-native .creation-split-resizer {
+    position: relative;
+    display: flex;
+    justify-content: center;
+    touch-action: none;
+    user-select: none;
+    cursor: col-resize;
+    background: linear-gradient(var(--border), var(--border)) center / 1px 100% no-repeat;
+}
+
+.creation-detail-native .creation-split-resizer:is(:hover, :focus-visible, .is-dragging) {
+    background: linear-gradient(var(--muted-foreground), var(--muted-foreground)) center / 2px 100% no-repeat;
+}
+
+.creation-detail-native .creation-split-resizer-pill {
+    position: sticky;
+    top: 48vh;
+    align-self: flex-start;
+    width: 6px;
+    height: 44px;
+    margin-block: 14px;
+    border-radius: var(--radius-full);
+    background: var(--muted-foreground);
+    box-shadow: 0 0 0 3px var(--background);
+    opacity: 0.68;
+    transition:
+        opacity 140ms ease,
+        transform 140ms ease;
+}
+
+.creation-detail-native .creation-split-resizer:is(:hover, :focus-visible, .is-dragging) .creation-split-resizer-pill {
+    opacity: 1;
+    transform: scaleY(1.15);
+}
+
+.creation-detail-native .creation-album-main-grid.is-dragging-split {
+    cursor: col-resize;
+    user-select: none;
+}
+
+.creation-detail-native .creation-intro-body,
+.creation-detail-native .creation-intro-flat .creation-body {
+    max-width: none;
+    margin: 0;
+    color: var(--foreground);
+    font-size: 0.9rem;
+    line-height: 1.8;
+}
+
+.creation-detail-native .creation-intro-body p {
+    margin: 0 0 12px;
+}
+
+.creation-detail-native .creation-intro-flat .creation-intro {
+    margin: 0 0 12px;
+    padding: 0;
+    border: 0;
+    background: transparent;
+    box-shadow: none;
+}
+
+.creation-detail-native .creation-intro-flat .creation-intro-label {
+    display: none;
+}
+
+.creation-detail-native .creation-intro-flat .creation-videos {
+    grid-template-columns: repeat(auto-fit, minmax(min(100%, 280px), 1fr));
+}
+
+.creation-detail-native .creation-video figcaption {
+    flex-wrap: wrap;
+}
+
+.creation-detail-native .creation-intro-flat :is(.creation-gallery, .creation-intro-figures) {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 12px;
+    margin: 14px 0;
+}
+
+.creation-detail-native .creation-intro-figure {
+    display: block;
+    min-width: 0;
+    margin: 0;
+    padding: 0;
+    border: 0;
+    border-radius: var(--radius-sm);
+    overflow: hidden;
+    background: transparent;
+    color: var(--muted-foreground);
+    text-align: start;
+    cursor: zoom-in;
+}
+
+.creation-detail-native .creation-intro-figure img {
+    display: block;
+    width: 100%;
+    height: auto;
+    aspect-ratio: 16 / 10;
+    object-fit: cover;
+    border: 1px solid var(--border);
+    border-radius: var(--radius-sm);
+}
+
+.creation-detail-native .creation-intro-figure :is(span, figcaption) {
+    display: block;
+    padding: 6px 2px 0;
+    font-size: 0.74rem;
+}
+
+.creation-detail-native .creation-more-switch {
+    display: inline-flex;
+    flex: none;
+    padding: 2px;
+    border: 1px solid var(--border);
+    border-radius: 999px;
+    background: var(--secondary);
+}
+
+.creation-detail-native .creation-more-switch button {
+    padding: 0.2rem 0.5rem;
+    border: 0;
+    border-radius: 999px;
+    background: transparent;
+    color: var(--muted-foreground);
+    font-size: 0.68rem;
+    cursor: pointer;
+}
+
+.creation-detail-native .creation-more-switch button.is-active {
+    background: var(--background);
+    color: var(--foreground);
+    box-shadow: 0 1px 3px rgb(0 0 0 / 10%);
+}
+
+.creation-detail-native .creation-more-switch button:focus-visible {
+    outline: 2px solid var(--foreground);
+    outline-offset: 1px;
+}
+
+.creation-detail-native .creation-bottom-more {
+    margin-top: 44px;
+    padding-top: 28px;
+    border-top: 1px solid var(--border);
+}
+
+.creation-detail-native .creation-bottom-more-head {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    justify-content: space-between;
+    gap: 12px;
+    margin-bottom: 18px;
+}
+
+.creation-detail-native .creation-bottom-more-head .section-title {
+    margin: 0;
+    font-size: 1.25rem;
+    font-weight: 720;
+}
+
+.creation-detail-native .creation-more-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(min(100%, 210px), 1fr));
+    gap: 20px;
+}
+
+.creation-detail-native .creation-more-card {
+    display: block;
+    min-width: 0;
+    border: 1px solid var(--border);
+    border-radius: var(--radius-md);
+    background: var(--card);
+    color: var(--foreground);
+    overflow: hidden;
+    overflow-wrap: anywhere;
+    text-decoration: none;
+}
+
+.creation-detail-native .creation-more-card:hover {
+    border-color: var(--muted-foreground);
+}
+
+.creation-detail-native .creation-more-card img {
+    display: block;
+    width: 100%;
+    aspect-ratio: 4 / 3;
+    object-fit: cover;
+    background: var(--muted);
+}
+
+.creation-detail-native .creation-more-card-body {
+    padding: 10px 12px 12px;
+}
+
+.creation-detail-native .creation-more-card-title {
+    margin: 0 0 4px;
+    font-size: 0.88rem;
+    font-weight: 650;
+    line-height: 1.35;
+}
+
+.creation-detail-native .creation-more-card-sub {
+    margin: 0;
+    color: var(--muted-foreground);
+    font-size: 0.74rem;
+}
+
+/* The existing adult-cover selector only sees a direct child image on the old hero. */
+:root.blur-adult-creation-detail-cover
+    .creation-detail-native[data-adult='true']:not(:hover)
+    .creation-detail-cover-wrap
+    img {
+    filter: blur(18px) saturate(0.82);
+    transform: scale(1.045);
+}
+
+/* The legacy selectors still cover descriptions, media and the hierarchy's file rows. */
+:root.blur-adult-creation-detail-content
+    .creation-detail-native[data-adult='true']:not(:hover)
+    :is(
+        .creation-column-head,
+        .voice-selection-toolbar,
+        .track-list-header,
+        .creation-preview-note,
+        .creation-bottom-more
+    ) {
+    filter: blur(9px);
+}
+
+@container creation-album (max-width: 1020px) {
+    .creation-detail-native .creation-detail-cover-wrap {
+        width: clamp(200px, 26cqi, 250px);
+    }
+
+    .creation-detail-native .creation-detail-heading .title {
+        font-size: 1.45rem;
+    }
+}
+
+@container creation-album (max-width: 880px) {
+    .creation-detail-native .creation-album-main-grid {
+        grid-template-columns: minmax(0, 1fr);
+        gap: 28px;
+    }
+
+    .creation-detail-native .creation-split-resizer {
+        display: none;
+    }
+
+    .creation-detail-native :is(.creation-tracklist-card, .creation-intro-flat) {
+        padding-inline: 0;
+    }
+}
+
+@container creation-album (max-width: 900px) {
+    .creation-detail-native .creation-detail-hero {
+        flex-direction: column;
+        gap: 16px;
+        margin-bottom: 18px;
+    }
+
+    .creation-detail-native .creation-detail-cover-wrap {
+        width: min(300px, 100%);
+    }
+
+    .creation-detail-native .creation-detail-heading {
+        width: 100%;
+    }
+}
+
+@container creation-file (max-width: 560px) {
+    .creation-detail-native .creation-tracklist-card .creation-column-sub {
+        display: none;
+    }
+}
+
+@container creation-intro (max-width: 420px) {
+    .creation-detail-native .creation-intro-flat :is(.creation-gallery, .creation-intro-figures) {
+        grid-template-columns: minmax(0, 1fr);
+    }
+
+    .creation-detail-native .creation-intro-flat .creation-column-sub {
+        display: none;
+    }
+}
+
+@container creation-intro (min-width: 640px) {
+    .creation-detail-native .creation-intro-flat :is(.creation-gallery, .creation-intro-figures) {
+        grid-template-columns: repeat(3, minmax(0, 1fr));
+    }
+}
+
+@media (prefers-reduced-motion: reduce) {
+    .creation-detail-native :is(.creation-split-resizer-pill, .creation-detail-cover-wrap .detail-header-image) {
+        transition: none;
+    }
+}
+
+/* Preview v2 header parity: title glyph, colored chips and warm cover actions. */
+.creation-detail-native .creation-title-row {
+    display: flex;
+    align-items: flex-start;
+    gap: 10px;
+    min-width: 0;
+}
+
+.creation-detail-native .creation-title-row .title {
+    flex: 1 1 auto;
+    max-width: none;
+    font-size: clamp(1.8rem, 2.2vw, 2.2rem);
+    font-weight: 760;
+}
+
+.creation-detail-native .creation-chip {
+    padding: 3px 10px;
+    font-size: 0.78rem;
+    color: color-mix(in srgb, var(--creation-chip-color) 76%, var(--foreground));
+    background: color-mix(in srgb, var(--creation-chip-color) 16%, var(--card));
+    border-color: color-mix(in srgb, var(--creation-chip-color) 44%, var(--border));
+}
+
+.creation-detail-native .creation-chip--circle {
+    background: color-mix(in srgb, #f59e0b 18%, var(--card));
+    border-color: color-mix(in srgb, #f59e0b 46%, var(--border));
+    color: color-mix(in srgb, #b45309 82%, var(--foreground));
+}
+
+.creation-detail-native .creation-chip--artist {
+    background: color-mix(in srgb, #38bdf8 18%, var(--card));
+    border-color: color-mix(in srgb, #38bdf8 46%, var(--border));
+    color: color-mix(in srgb, #0369a1 82%, var(--foreground));
+}
+
+.creation-detail-native .creation-chip--tag {
+    background: color-mix(in srgb, #a78bfa 17%, var(--card));
+    border-color: color-mix(in srgb, #a78bfa 44%, var(--border));
+    color: color-mix(in srgb, #6d28d9 78%, var(--foreground));
+}
+
+.creation-detail-native .creation-header-actions {
+    --creation-action-accent: #e7be8c;
+    --creation-action-ink: #4a2f18;
+    --creation-action-border: color-mix(in srgb, #c58b4b 42%, var(--border));
+}
+
+.creation-detail-native .creation-header-actions :is(.btn-primary, .btn-secondary, .creation-action-circle) {
+    border-color: var(--creation-action-border);
+    background: color-mix(in srgb, var(--creation-action-accent) 48%, var(--card));
+    color: var(--creation-action-ink);
+}
+
+.creation-detail-native .creation-header-actions .btn-primary,
+.creation-detail-native .creation-header-actions #creations-play-all {
+    background: var(--creation-action-accent);
+    border-color: color-mix(in srgb, #b97734 40%, var(--creation-action-accent));
+    color: var(--creation-action-ink);
+    font-weight: 700;
+}
+
+.creation-detail-native .creation-header-actions :is(.btn-primary, .btn-secondary, .creation-action-circle):hover {
+    background: color-mix(in srgb, var(--creation-action-accent) 72%, var(--card));
+    border-color: color-mix(in srgb, #b97734 62%, var(--creation-action-border));
+}
+
+.creation-detail-native .creation-header-actions .creation-format-picker select {
+    border-color: var(--creation-action-border);
+    background: color-mix(in srgb, var(--creation-action-accent) 48%, var(--card));
+    color: var(--creation-action-ink);
+}
+
+@container creation-album (max-width: 1020px) {
+    .creation-detail-native .creation-title-row .title {
+        font-size: 1.65rem;
+    }
+}
+
+@container creation-album (max-width: 880px) {
+    .creation-detail-native .creation-title-row .title {
+        font-size: 1.75rem;
+    }
+}

@@ -1,0 +1,18 @@
+# 这个仓库整体沿用上游 Monochrome 的代码风格(4 空格缩进、单引号、分号),
+# 否则我们的 verify/ 脚本会和它要检查的源码长得不一样。工作区根 .editorconfig 的
+# "mjs 用 Tab" 是给模板项目用的,这个被收养的仓库以自身一致性优先(AGENTS §4)。
+root = true
+
+[*]
+charset = utf-8
+end_of_line = lf
+insert_final_newline = true
+trim_trailing_whitespace = true
+indent_style = space
+indent_size = 4
+
+[*.md]
+trim_trailing_whitespace = false
+
+[*.{yml,yaml}]
+indent_size = 2

@@ -1,0 +1,87 @@
+node_modules
+dist
+.DS_Store
+*.local
+.vite
+.claude
+# Docker
+.env
+# Neutralino
+.tmp/
+.vitest-attachments/
+**/__screenshots__/*
+bin/
+*.log
+.storage/
+auth_storage/
+www
+neutralino.js
+package-lock.json
+# Direnv
+.envrc
+# vim
+.lazy.lua
+Caddyfile
+dev-dist
+load-balancer
+# We already have bun.lock, bun.lockb is redundant
+bun.lockb,
+bun.lock
+.wrangler
+.opencode
+
+# ── 二开 fork 追加(见 docs/03-upstream-sync.md)──────────────────────────
+# npm 安装配置,只含 legacy-peer-deps;属于本机状态,每台机器自己生成,不提交。
+.npmrc
+# 自检临时文件与本地缓存。
+verify/.tmp/
+.cache/
+
+# Demo web build output (rebuild with: node demo/build-web.mjs)
+demo/web/
+
+# Offline Tauri demo build products / generated frontend
+demo/web/
+demo/package/
+demo/node_modules/
+demo/src-tauri/gen/
+demo/src-tauri/target/
+demo/web/**
+demo/package/**
+demo/src-tauri/gen/**
+demo/src-tauri/target/**
+demo/portable/**
+
+# ── Fork hygiene: local-only data, third-party corpora, generated runtime ─────
+# Real library backups, browser profiles and worktrees must never be committed.
+.scratch/
+Hentasy/
+monochrome-rust-backend/
+# Purchased audio corpus used only by storage-lab tests.
+verify/ASMR.zip/
+# Bundled Node runtime and copied host sources; regenerate with the demo build.
+demo/src-tauri/resources/
+# Python/test byproducts and one-off preview scratch.
+__pycache__/
+*.pyc
+preview-creation-detail*.html
+startup.txt
+tempgoalfor reminder.txt
+e16-outside-canary.bin
+
+# ── 上传策略:只保留能跑的代码(2026-11-18,用户决定)────────────────────────
+# 这个 fork 上传到 GitHub 的只有"克隆下来能跑起来"的源码,本机验证面不上传。
+# 本机产物那一段不再追加规则:实测 demo/.gitignore 已覆盖 storage-admin 的
+# target/gen/resources 与它自己的 package-lock.json,上面第 14 行的 `*.log`
+# 已覆盖 .cache 下的构建日志 —— 再写一遍只是噪音,上游同步时变成多余冲突点。
+#
+# 注意:.gitignore 只影响"以后会不会被 git add 收进去";这之前已经进过索引的文件
+# 必须用 `git rm -r --cached <path>` 移出索引(工作区文件保留),命令与门禁影响见
+# docs/handoff/350-repo-file-inventory-2026-11-18-dsh.md §6。
+# verify/ 整体不上传:7 千多个文件、60 MB 截图证据,是"本机跑过的证明",不是运行时依赖。
+# check.mjs/kind.mjs 因此也不在上传范围内 —— 新克隆上 project.json.commands.test 会
+# 找不到文件,这是策略的已知代价,不是回归。
+verify/
+# demo 的 QA 截图同理:证明 demo 跑过,不是 demo 的运行时文件。
+demo/evidence/
+

@@ -1,0 +1,187 @@
+.creation-creator-page [hidden] {
+    display: none !important;
+}
+
+/* Imported profiles have no artist banner; reserve space for their actual content. */
+#page-artist.creation-creator-page .detail-header {
+    min-height: 0;
+    margin: 0 0 28px;
+    padding: 20px 0 0;
+    gap: 24px;
+    align-items: flex-start;
+    overflow: visible;
+}
+
+#page-artist.creation-creator-page .detail-header-image {
+    width: 136px;
+    height: 136px;
+    border-radius: 50%;
+    border-width: 2px;
+    box-shadow: 0 4px 14px rgb(0 0 0 / 10%);
+    filter: none;
+}
+
+#page-artist.creation-creator-page .detail-header-info {
+    flex: 1;
+    min-width: 0;
+    text-shadow: none;
+}
+
+#page-artist.creation-creator-page .detail-header-info .title {
+    margin: 0 0 10px;
+    font-size: clamp(28px, 3.2vw, 46px);
+    line-height: 1.15;
+    text-shadow: none;
+    filter: none;
+}
+
+#page-artist.creation-creator-page .detail-header-info .meta {
+    flex-wrap: wrap;
+    overflow-wrap: anywhere;
+    margin: 0;
+    line-height: 1.5;
+}
+
+#page-artist.creation-creator-page .artist-socials {
+    margin-top: 8px;
+    overflow-wrap: anywhere;
+}
+
+#page-artist.creation-creator-page .artist-bio {
+    max-width: 780px;
+    max-height: none;
+    padding: 0;
+    margin: 12px 0 0;
+    background: none;
+    border: 0;
+    box-shadow: none;
+    opacity: 1;
+    color: var(--muted-foreground);
+    line-height: 1.7;
+    overflow: visible;
+    text-shadow: none;
+    filter: none;
+}
+
+#page-artist.creation-creator-page .detail-header-actions {
+    margin-top: 16px;
+    max-width: 100%;
+}
+
+#page-artist.creation-creator-page :is(.artist-bio, .artist-socials):empty {
+    display: none !important;
+}
+
+.creation-creator-page .artist-bio {
+    display: block !important;
+    cursor: default !important;
+    white-space: pre-wrap;
+    overflow-wrap: anywhere;
+}
+
+.creation-creator-page .detail-header-info {
+    min-width: 0;
+}
+
+.creation-creator-page .detail-header-info .title {
+    overflow-wrap: anywhere;
+}
+
+.creation-creator-page .creation-creator-controls .btn-primary,
+.creation-creator-page .creation-creator-controls .btn-secondary {
+    width: auto;
+    height: 40px;
+    padding: 10px 18px;
+    border-radius: var(--radius-full);
+    font: inherit;
+    white-space: nowrap;
+}
+
+.creation-creator-controls {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 12px;
+}
+
+.creation-creator-controls a {
+    display: inline-flex;
+    align-items: center;
+    text-decoration: none;
+}
+
+.creation-creator-toolbar {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 12px;
+    margin: 16px 0;
+}
+
+.creation-creator-toolbar input,
+.creation-creator-toolbar select {
+    box-sizing: border-box;
+    min-width: 0;
+    max-width: 100%;
+    border: 1px solid var(--border-color, #8885);
+    border-radius: 8px;
+    background: var(--background-secondary, transparent);
+    color: inherit;
+    font: inherit;
+    padding: 10px 12px;
+}
+
+.creation-creator-toolbar input {
+    flex: 1 1 240px;
+}
+
+.creation-creator-toolbar select {
+    flex: 0 1 160px;
+}
+
+.creation-creator-feedback {
+    color: var(--text-secondary, inherit);
+    font-size: 0.875rem;
+    margin: 0 0 16px;
+}
+
+@media (max-width: 480px) {
+    #page-artist.creation-creator-page .detail-header {
+        padding-top: 12px;
+        gap: 16px;
+        margin-bottom: 24px;
+        flex-direction: column;
+        align-items: center;
+        text-align: center;
+    }
+
+    #page-artist.creation-creator-page .detail-header-image {
+        width: 108px;
+        height: 108px;
+    }
+
+    #page-artist.creation-creator-page .detail-header-info {
+        width: 100%;
+    }
+
+    #page-artist.creation-creator-page .artist-socials,
+    #page-artist.creation-creator-page .creation-creator-controls {
+        justify-content: center;
+    }
+
+    #page-artist.creation-creator-page .artist-bio {
+        text-align: left;
+        font-size: 0.875rem;
+    }
+
+    .creation-creator-toolbar {
+        gap: 8px;
+    }
+
+    .creation-creator-toolbar select {
+        flex: 1 1 100px;
+        width: 100px;
+    }
+
+    .creation-creator-controls {
+        gap: 8px;
+    }
+}
