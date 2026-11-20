@@ -1,0 +1,132 @@
+/* ID scope overrides the legacy panel rules without changing other native cards. */
+#voice-download-panel.voice-download-card {
+    position: fixed;
+    z-index: 2055;
+    /* Fallback before JS measures the actual floating player bar. */
+    right: 20px;
+    bottom: calc(var(--player-bar-height-desktop, 90px) + 20px + env(safe-area-inset-bottom));
+    width: min(400px, calc(100vw - 32px));
+    max-height: calc(100dvh - var(--player-bar-height-desktop, 90px) - 48px);
+    display: flex;
+    flex-direction: column;
+    overflow: hidden;
+    padding: 0;
+    border: 1px solid var(--border, #333);
+    border-radius: var(--card-radius, 12px);
+    background: var(--card, #141414);
+    color: var(--card-foreground, #f5f5f5);
+    box-shadow: 0 8px 28px #0003;
+    font-size: 13px;
+}
+#voice-download-panel .voice-download-banner {
+    position: relative;
+    isolation: isolate;
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    flex: 0 0 auto;
+    width: 100%;
+    min-height: 48px;
+    padding: 12px 16px;
+    border: 0;
+    border-radius: 0;
+    background: color-mix(in srgb, #a9d7ae 9%, var(--card, #141414));
+    color: inherit;
+    text-align: left;
+    cursor: pointer;
+    font: inherit;
+}
+#voice-download-panel .voice-download-banner-fill {
+    position: absolute;
+    inset: 0 auto 0 0;
+    z-index: -1;
+    background: color-mix(in srgb, #a9d7ae 28%, var(--card, #141414));
+    transition: width 200ms ease;
+    pointer-events: none;
+}
+#voice-download-panel .voice-download-banner-title {
+    font-weight: 600;
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+#voice-download-panel .voice-download-overall-percent {
+    margin-left: auto;
+    font-variant-numeric: tabular-nums;
+}
+#voice-download-panel .voice-download-toggle-icon {
+    transform: rotate(180deg);
+}
+#voice-download-panel[data-minimized='true'] .voice-download-toggle-icon {
+    transform: none;
+}
+#voice-download-panel .voice-download-overall-progress {
+    height: 0;
+    overflow: hidden;
+}
+#voice-download-panel .voice-download-details {
+    padding: 16px;
+    min-height: 0;
+    overflow: auto;
+}
+#voice-download-panel .voice-download-details[hidden] {
+    display: none;
+}
+#voice-download-panel .voice-download-panel-head {
+    align-items: flex-start;
+    margin: 0 0 10px;
+}
+#voice-download-panel .voice-download-heading {
+    min-width: 0;
+    flex: 1;
+}
+#voice-download-panel .voice-download-root {
+    overflow-wrap: anywhere;
+    white-space: normal;
+}
+#voice-download-panel button:focus-visible {
+    outline: 2px solid var(--ring, #a9d7ae);
+    outline-offset: -3px;
+}
+#voice-download-panel .voice-download-files {
+    max-height: min(38dvh, 320px);
+    margin-top: 12px;
+}
+#voice-download-panel .voice-download-file-bytes {
+    font-size: 11px;
+    color: var(--muted-foreground, #aaa);
+    margin: 6px 0;
+    font-variant-numeric: tabular-nums;
+}
+#voice-download-panel .voice-download-file-error {
+    color: var(--destructive, #df7777);
+    font-size: 11px;
+    overflow-wrap: anywhere;
+}
+#voice-download-panel .voice-download-file-error:empty {
+    display: none;
+}
+#voice-download-panel .voice-download-file-state {
+    flex-shrink: 0;
+}
+#voice-download-panel .voice-download-footer {
+    display: flex;
+    justify-content: flex-end;
+    margin-top: 14px;
+}
+#voice-download-panel .voice-download-cancel {
+    min-height: 34px;
+}
+@media (max-width: 600px) {
+    #voice-download-panel.voice-download-card {
+        right: 16px;
+        bottom: calc(var(--player-bar-height-mobile, 130px) + 12px + env(safe-area-inset-bottom));
+        max-height: calc(100dvh - var(--player-bar-height-mobile, 130px) - 40px);
+    }
+}
+@media (prefers-reduced-motion: reduce) {
+    #voice-download-panel .voice-download-banner-fill {
+        transition: none;
+    }
+}

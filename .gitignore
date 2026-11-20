@@ -1,0 +1,99 @@
+node_modules
+dist
+.DS_Store
+*.local
+.vite
+.claude
+# Docker
+.env
+# Neutralino
+.tmp/
+.vitest-attachments/
+**/__screenshots__/*
+bin/
+*.log
+.storage/
+auth_storage/
+www
+neutralino.js
+package-lock.json
+# Direnv
+.envrc
+# vim
+.lazy.lua
+Caddyfile
+dev-dist
+load-balancer
+# We already have bun.lock, bun.lockb is redundant
+bun.lockb,
+bun.lock
+.wrangler
+.opencode
+
+# ── 二开 fork 追加(见 docs/03-upstream-sync.md)──────────────────────────
+# npm 安装配置,只含 legacy-peer-deps;属于本机状态,每台机器自己生成,不提交。
+.npmrc
+# 自检临时文件与本地缓存。
+verify/.tmp/
+.cache/
+
+# Rust 编译产物。cargo 读取 rust-backend/.gitignore 里的 /target/,但项目的
+# verify/check.mjs 只读根 .gitignore,嵌套规则不参与扫描,所以两处都要写。
+rust-backend/target/
+
+# Demo web build output (rebuild with: node demo/build-web.mjs)
+demo/web/
+
+# Offline Tauri demo build products / generated frontend
+demo/web/
+demo/package/
+demo/node_modules/
+demo/src-tauri/gen/
+demo/src-tauri/target/
+demo/web/**
+demo/package/**
+demo/src-tauri/gen/**
+demo/storage-admin/src-tauri/gen/
+demo/storage-admin/src-tauri/gen/**
+demo/storage-admin/src-tauri/target/
+demo/src-tauri/target/**
+demo/portable/**
+
+# ── 产物与本机状态(2026-11-18,见 docs/handoff/351-repo-file-inventory-2026-11-18-dsh.md)──
+# 本节只补上游/本 fork 前面段落漏掉的本机文件;上面的规则原样保留,方便合并上游。
+# Tauri 打包脚本把便携版要用的 node.exe 与 storage-host 复制到 resources/;
+# 它们是构建时生成的二进制和副本(`-Portable` 产物),删掉重建即可,不能进仓库。
+# 注意:这个分支的 build.ps1 已改为把 storage host 链接进 Tauri 进程,不再生成这两个目录,
+# 规则留着是为了老脚本/手动打包不会把二进制带进来。
+demo/src-tauri/resources/
+demo/storage-admin/src-tauri/resources/
+# 便携版运行时数据目录(MonochromeData 里的导入库、下载与 WebView2 profile):
+# 都是本机运行时状态,可能含真实用户样本,绝不上传。portable/** 已覆盖新目录,
+# 这里再写一次子目录,防止将来 portable/ 规则被上游合并覆盖后漏掉数据目录。
+demo/portable/MonochromeData/
+# 验证脚本的临时输出与诊断转储;本地重跑即可再生,不属于源码。
+verify/.tmp/**
+demo/.tmp/
+# 日志、本地缓存(.cache/)、.vite/、dev-dist 与 rust-backend/target/ 已由本文件前面的
+# 段落覆盖:上面的 `*.log`、`.cache/`、`.vite`、`dev-dist` 和第 41 行的 `rust-backend/target/`。
+# 这里刻意不重复写,免得同一规则两处维护、合并上游时打架。
+
+# ── 上传策略:只保留代码(2026-11-18)──
+# 用户决定:这个 fork 上传 GitHub 时只保留「能跑的代码」+ 项目文档,
+# 验证与证据留在本机。理由:verify/ 已跟踪 7228 个文件、82 MB,其中
+# verify/evidence/ 是 78 MB 截图/JSON,上传既臃肿又重复了「本地可重跑」的东西。
+# 剔除方式(会改索引,所以不在 .gitignore 里自动做)——索引层移除,磁盘文件保留:
+#   git rm -r --cached verify demo/evidence
+#   git commit -m "chore: stop tracking verify/ and demo/evidence/"
+#   验证:`git ls-files verify | wc -l` 输出 0;`git status --short` 干净。
+# 与 check.mjs 的交互(2026-11-18 实测,别凭直觉改):
+#   verify/check.mjs 的 [5] 段用的是它自己的简化 matcher —— 只把规则按「整串路径」匹配,
+#   不模拟 git 的目录递归。`verify/` 在这里只会命中 `verify` 本身,`verify/evidence`
+#   仍被判为「没被排除」,所以「evidence 没有被 .gitignore 排除(证据必须提交)」保持绿,
+#   「声明的 artifacts 都被 .gitignore 排除」也是绿的。
+#   也就是说:check.mjs 绿 ≠ git 还跟踪 evidence。真实效果以 `git status` / `git ls-files` 为准
+#   (git 会忽略整棵 verify/ 树),这正是本段想要的。
+# 不要为了让两者一致去改 project.json.evidence 或删断言:那是契约,不是策略开关。
+verify/
+# demo 证据同样属于验证产物,和 verify/ 一起排除。
+demo/evidence/

@@ -1,0 +1,13 @@
+# 上游仓库没有 .gitattributes,而 Windows 的全局 core.autocrlf=true 会把 checkout 出来的
+# 文本写成 CRLF。本工作区要求 LF,显式钉住 eol=lf 后,任何平台克隆下来都是同一份字节。
+* text=auto eol=lf
+
+# 证据图片与二进制产物不参与 diff。
+*.png binary
+*.jpg binary
+*.jpeg binary
+*.webp binary
+*.ico binary
+*.woff binary
+*.woff2 binary
+*.wasm binary

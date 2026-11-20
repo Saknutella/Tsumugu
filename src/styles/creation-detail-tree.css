@@ -1,0 +1,486 @@
+.creation-detail-native .creation-tracklist-card {
+    --creation-file-columns: 40px minmax(0, 1fr) 7rem 6.5rem;
+    --creation-file-gap: var(--spacing-md);
+    --creation-file-indent: 0.85rem;
+}
+
+.creation-detail-native .creation-tracklist-card :is(.track-list-header, .creation-attachment) {
+    display: grid;
+    grid-template-columns: var(--creation-file-columns);
+    align-items: center;
+    gap: var(--creation-file-gap);
+    padding: 0.4rem 0.5rem;
+    min-width: 0;
+}
+
+.creation-detail-native .creation-tracklist-card .track-list-header {
+    font-size: 0.78rem;
+    white-space: nowrap;
+}
+
+.creation-detail-native
+    .creation-tracklist-card
+    :is(.track-list-header > :last-child, .duration-header, .track-item-duration) {
+    text-align: right;
+}
+
+.creation-detail-native .creation-tracklist-card .voice-album-hierarchy {
+    overflow: visible;
+    border: 0;
+    border-radius: 0;
+    background: transparent;
+}
+
+.creation-detail-native .creation-tracklist-card .voice-album-folder:not(:has(.creation-attachment:not([hidden]))) {
+    display: none;
+}
+
+.creation-detail-native .creation-tracklist-card .voice-album-folder-row {
+    display: flex;
+    align-items: center;
+    gap: 0.4rem;
+    padding: 0.45rem 0.5rem;
+    border-bottom: 1px solid var(--border);
+    color: var(--muted-foreground);
+    font-size: 0.78rem;
+    font-weight: 600;
+    list-style: none;
+    cursor: pointer;
+}
+
+.creation-detail-native .creation-tracklist-card .voice-album-folder-row::-webkit-details-marker {
+    display: none;
+}
+
+.creation-detail-native .creation-tracklist-card .voice-album-folder-caret {
+    display: inline-block;
+    transition: transform 200ms ease;
+}
+
+.creation-detail-native
+    .creation-tracklist-card
+    .voice-album-folder[data-folder-expanded='false']
+    > summary
+    .voice-album-folder-caret {
+    transform: rotate(-90deg);
+}
+
+.creation-detail-native .creation-tracklist-card .voice-folder-main {
+    display: flex;
+    align-items: center;
+    flex: 1;
+    min-width: 0;
+    gap: clamp(0.5rem, 2.2cqi, 1rem);
+    padding-inline-start: calc(min(3, var(--voice-depth, 0)) * var(--creation-file-indent));
+}
+
+.creation-detail-native .creation-tracklist-card .voice-album-folder-icon {
+    flex: none;
+    color: var(--muted-foreground);
+}
+
+.creation-detail-native .creation-tracklist-card .voice-album-folder-name {
+    min-width: 0;
+    overflow: hidden;
+    white-space: nowrap;
+    text-overflow: ellipsis;
+}
+
+.creation-detail-native .creation-tracklist-card .voice-album-folder-count {
+    margin-inline-start: auto;
+    white-space: nowrap;
+    font-weight: 400;
+}
+
+/* Keep hover feedback inside the fixed hit area, including near nested folders and the split handle. */
+.creation-detail-native .creation-tracklist-card .creation-attachment {
+    padding: var(--spacing-sm) var(--spacing-md);
+    border: 1px solid transparent;
+    border-radius: var(--radius-sm);
+    cursor: pointer;
+    transition: background-color var(--transition-fast);
+}
+
+.creation-detail-native .creation-tracklist-card .creation-attachment[hidden] {
+    display: none;
+}
+
+/* Native album hitbox: scale the row inside a clipped hit area so the tree rail
+   and elbow do not move with the hover scale. */
+.creation-detail-native .creation-tracklist-card .voice-album-row-hitbox {
+    position: relative;
+    overflow: clip;
+    overflow-clip-margin: 6px;
+    border-radius: var(--radius-sm);
+}
+
+.creation-detail-native .creation-tracklist-card .voice-album-row-hitbox:is(:hover, :focus-within) {
+    z-index: 1;
+}
+
+.creation-detail-native .creation-tracklist-card .voice-album-track-row {
+    transform: translateZ(0);
+    backface-visibility: hidden;
+    transition: transform var(--transition-fast), background-color var(--transition-fast);
+}
+
+.creation-detail-native .creation-tracklist-card .voice-album-row-hitbox:hover > .creation-attachment {
+    transform: translateZ(0) scale(1.005);
+    background: var(--track-hover-bg, var(--secondary));
+}
+
+.creation-detail-native .creation-tracklist-card .voice-album-row-hitbox:active > .creation-attachment {
+    transform: translateZ(0) scale(0.99);
+}
+
+.creation-detail-native .creation-tracklist-card .voice-album-row-hitbox > .creation-attachment.playing {
+    background: rgb(var(--highlight-rgb), 0.15);
+}
+
+.creation-detail-native .creation-tracklist-card .voice-album-row-hitbox > .creation-attachment.creation-attachment--selected {
+    background: color-mix(in srgb, var(--highlight) 12%, var(--card));
+}
+
+
+.creation-detail-native .creation-tracklist-card .creation-file-ordinal {
+    display: flex;
+    align-items: center;
+    gap: 0.2rem;
+}
+
+.creation-detail-native .creation-tracklist-card .voice-tree-heading {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.35rem;
+}
+
+.creation-detail-native .creation-tracklist-card .voice-tree-heading-index {
+    flex: none;
+    width: 1ch;
+    color: var(--muted-foreground);
+    font-size: 0.75rem;
+    font-variant-numeric: tabular-nums;
+    text-align: center;
+}
+
+.creation-detail-native .creation-tracklist-card .track-number {
+    font-size: 0.72rem;
+    font-variant-numeric: tabular-nums;
+}
+
+.creation-detail-native .creation-tracklist-card .track-item-info {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+    min-width: 0;
+    padding-inline-start: calc(min(3, var(--voice-depth, 0)) * var(--creation-file-indent));
+}
+
+.creation-detail-native .creation-tracklist-card :is(.track-item-details, .creation-file-title, .creation-file-meta) {
+    min-width: 0;
+}
+
+.creation-detail-native .creation-tracklist-card :is(.creation-file-title, .creation-file-meta) {
+    display: flex;
+    align-items: center;
+    gap: 0.35rem;
+}
+
+.creation-detail-native .creation-tracklist-card .creation-file-meta {
+    margin-top: 0.15rem;
+}
+
+.creation-detail-native .creation-tracklist-card .creation-attachment-type {
+    border: 1px solid currentColor;
+    border-radius: 2px;
+    background: transparent;
+    padding: 0 0.25rem;
+    margin: 0;
+    font-size: 0.65rem;
+    line-height: 1.25;
+    white-space: nowrap;
+}
+
+.creation-detail-native .creation-tracklist-card .creation-attachment-type[data-type='pdf'] {
+    --attachment-accent: #f43f5e;
+}
+
+.creation-detail-native .creation-tracklist-card .voice-album-type {
+    display: inline-block;
+    flex: none;
+    vertical-align: middle;
+    color: var(--muted-foreground);
+}
+
+.creation-detail-native .creation-tracklist-card .voice-album-type[data-type='audio'] {
+    color: #60a5fa;
+}
+
+.creation-detail-native .creation-tracklist-card .voice-album-type[data-type='image'] {
+    color: #fbbf24;
+}
+
+.creation-detail-native .creation-tracklist-card .voice-album-type[data-type='text'] {
+    color: #a78bfa;
+}
+
+.creation-detail-native .creation-tracklist-card .voice-album-type[data-type='pdf'] {
+    color: #f43f5e;
+}
+
+.creation-detail-native .creation-tracklist-card .voice-album-type[data-type='archive'] {
+    color: #fb923c;
+}
+
+.creation-detail-native .creation-tracklist-card .voice-album-type[data-type='video'] {
+    color: #ec4899;
+}
+
+.creation-detail-native .creation-tracklist-card .voice-album-type[data-type='file'] {
+    color: var(--muted-foreground);
+}
+
+@media (prefers-reduced-motion: reduce) {
+    .creation-detail-native .creation-tracklist-card :is(.voice-album-track-row, .voice-album-row-hitbox > .creation-attachment) {
+        transform: none;
+        transition: none;
+    }
+}
+
+.creation-detail-native .creation-tracklist-card .creation-attachment-name {
+    min-width: 0;
+    padding: 0;
+    border: 0;
+    background: transparent;
+    color: var(--foreground);
+    font: inherit;
+    font-size: 0.85rem;
+    text-align: start;
+    cursor: pointer;
+}
+
+.creation-detail-native
+    .creation-tracklist-card
+    :is(.creation-attachment-name, .creation-attachment-meta, .creation-attachment-state, .track-item-duration) {
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.creation-detail-native .creation-tracklist-card .creation-attachment-state {
+    max-width: 100%;
+}
+
+.creation-detail-native .creation-tracklist-card .track-item-duration {
+    font-size: 0.75rem;
+    font-variant-numeric: tabular-nums;
+}
+
+.creation-detail-native .creation-tracklist-card .track-item-actions {
+    display: flex;
+    flex-wrap: wrap;
+    justify-content: flex-end;
+    gap: 0.25rem;
+    min-width: 0;
+    font-size: 0.72rem;
+}
+
+.creation-detail-native .creation-tracklist-card .track-item-actions > :is(a, button) {
+    width: auto;
+    margin: 0;
+    padding: 0.25rem 0.4rem;
+    font-size: inherit;
+    text-align: center;
+}
+
+.creation-detail-native .creation-tracklist-card .creation-attachment-progress {
+    grid-column: 2 / -1;
+}
+
+.creation-detail-native .creation-tracklist-card .creation-row-thumb-box {
+    display: block;
+    flex: none;
+    width: 44px;
+    height: 44px;
+    overflow: hidden;
+    padding: 0;
+    border: 1px solid var(--border);
+    border-radius: 7px;
+    background: var(--muted);
+    box-shadow: 0 2px 6px rgb(0 0 0 / 0.08);
+    cursor: zoom-in;
+}
+
+.creation-detail-native .creation-tracklist-card .creation-row-thumb {
+    display: block;
+    width: 100%;
+    height: 100%;
+    object-fit: cover;
+    transition: transform 180ms ease;
+}
+
+.creation-detail-native
+    .creation-tracklist-card
+    .creation-row-thumb-box:is(:hover, :focus-visible)
+    .creation-row-thumb {
+    transform: scale(1.08);
+}
+
+@container creation-file (max-width: 540px) {
+    .creation-detail-native .creation-tracklist-card :is(.track-list-header, .creation-attachment) {
+        --creation-file-columns: 2.7rem minmax(0, 1fr) 5rem 5.5rem;
+        --creation-file-gap: 0.4rem;
+        --creation-file-indent: 0.45rem;
+    }
+}
+
+@container creation-file (max-width: 390px) {
+    .creation-detail-native .creation-tracklist-card :is(.track-list-header, .creation-attachment) {
+        --creation-file-columns: 2.35rem minmax(0, 1fr) 4.5rem;
+        --creation-file-indent: 0.2rem;
+    }
+
+    .creation-detail-native .creation-tracklist-card :is(.duration-header, .track-item-duration) {
+        display: none;
+    }
+}
+
+@media (prefers-reduced-motion: reduce) {
+    .creation-detail-native
+        .creation-tracklist-card
+        :is(.creation-attachment, .creation-row-thumb, .voice-album-folder-caret) {
+        transition: none;
+    }
+}
+
+/* Preview v2: per-folder list/gallery switch for image-heavy folders. */
+.creation-detail-native .creation-folder-view-toggle {
+    display: inline-flex;
+    align-items: center;
+    gap: 2px;
+    margin-inline-start: 0;
+    padding: 2px;
+    border: 1px solid var(--border);
+    border-radius: 999px;
+    background: var(--secondary);
+}
+
+.creation-detail-native .creation-folder-view-btn {
+    min-height: 24px;
+    padding: 2px 8px;
+    border: 0;
+    border-radius: 999px;
+    background: transparent;
+    color: var(--muted-foreground);
+    font-size: 0.7rem;
+    font-weight: 600;
+    cursor: pointer;
+}
+
+.creation-detail-native .creation-folder-view-btn.is-active {
+    background: var(--card);
+    color: var(--foreground);
+    box-shadow: var(--shadow-sm);
+}
+
+.creation-detail-native details.voice-album-folder[data-creation-folder-view='grid'] > .voice-album-folder-children > .creation-folder-list,
+.creation-detail-native details.voice-album-folder:not([data-creation-folder-view='grid']) > .voice-album-folder-children > .creation-folder-gallery-grid {
+    display: none;
+}
+
+.creation-detail-native .creation-folder-gallery-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(min(100%, 168px), 1fr));
+    gap: 10px;
+    padding: 8px 0 4px;
+}
+
+.creation-detail-native .creation-folder-gallery-item {
+    display: flex;
+    flex-direction: column;
+    min-width: 0;
+    padding: 0;
+    overflow: hidden;
+    border: 1px solid var(--border);
+    border-radius: var(--radius-md);
+    background: var(--card);
+    text-align: start;
+    cursor: zoom-in;
+    transition: border-color 0.15s ease, transform 0.15s ease;
+}
+
+.creation-detail-native .creation-folder-gallery-item:hover {
+    border-color: var(--muted-foreground);
+    transform: translateY(-1px);
+}
+
+.creation-detail-native .creation-folder-gallery-item img {
+    display: block;
+    width: 100%;
+    aspect-ratio: 16 / 10;
+    object-fit: cover;
+    background: var(--muted);
+}
+
+.creation-detail-native .creation-folder-gallery-meta {
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+    padding: 8px;
+    min-width: 0;
+}
+
+.creation-detail-native .creation-folder-gallery-title {
+    display: flex;
+    align-items: center;
+    gap: 5px;
+    min-width: 0;
+    color: var(--foreground);
+    font-size: 0.72rem;
+    font-weight: 600;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.creation-detail-native .creation-folder-gallery-sub {
+    display: flex;
+    justify-content: space-between;
+    gap: 6px;
+    color: var(--muted-foreground);
+    font-size: 0.66rem;
+}
+
+/* Match the native /album file tree rhythm: 58px rows, 16px titles, 14px durations. */
+.creation-detail-native .creation-tracklist-card .voice-album-row-hitbox {
+    min-height: 58px;
+}
+
+.creation-detail-native .creation-tracklist-card .creation-attachment {
+    min-height: 58px;
+    padding-block: 8px;
+}
+
+.creation-detail-native .creation-tracklist-card .creation-attachment-name {
+    font-size: 1rem;
+    font-weight: 500;
+    line-height: 1.3;
+}
+
+.creation-detail-native .creation-tracklist-card .creation-file-title {
+    gap: 8px;
+}
+
+.creation-detail-native .creation-tracklist-card .track-item-duration {
+    font-size: 0.875rem;
+    color: var(--foreground);
+    white-space: nowrap;
+}
+
+.creation-detail-native .creation-tracklist-card .creation-file-meta {
+    font-size: 0.75rem;
+}
+
+.creation-detail-native .creation-tracklist-card .voice-album-folder-row {
+    min-height: 48px;
+}

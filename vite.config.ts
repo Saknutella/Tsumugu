@@ -1,0 +1,195 @@
+import path from 'path';
+import { defineConfig } from 'vite';
+import { VitePWA } from 'vite-plugin-pwa';
+import authGatePlugin from './vite-plugin-auth-gate.js';
+import blobAssetPlugin from './vite-plugin-blob.js';
+import svgUse from './vite-plugin-svg-use.js';
+import uploadPlugin from './vite-plugin-upload.js';
+import creationPreviewFetchPlugin from './vite-plugin-creation-preview.js';
+import kikoeruApiProxyPlugin from './vite-plugin-kikoeru-api.js';
+import youtubeMetaPlugin from './vite-plugin-youtube-meta.js';
+import { playwright } from '@vitest/browser-playwright';
+import { execSync } from 'child_process';
+
+function proxyAudioPlugin() {
+    return {
+        name: 'proxy-audio-dev',
+        configureServer(server) {
+            // No longer needed: local proxy-audio middleware replaced by remote proxy
+        },
+    };
+}
+
+function getGitCommitHash() {
+    try {
+        return execSync('git rev-parse --short HEAD').toString().trim();
+    } catch {
+        return 'unknown';
+    }
+}
+
+export default defineConfig(({ mode }) => {
+    const commitHash = getGitCommitHash();
+    const isDev = mode === 'development';
+
+    return {
+        test: {
+            // https://vitest.dev/guide/browser/
+            browser: {
+                enabled: true,
+                provider: playwright({
+                    launchOptions: {
+                        args: ['--disable-web-security'],
+                        // Workspace policy prefers the shared Chromium; allow CI/dev
+                        // to point the test runner at that binary explicitly.
+                        ...(process.env.PLAYWRIGHT_CHROMIUM_EXECUTABLE_PATH
+                            ? { executablePath: process.env.PLAYWRIGHT_CHROMIUM_EXECUTABLE_PATH }
+                            : {}),
+                    },
+                }),
+                headless: !!process.env.HEADLESS,
+                instances: [{ browser: 'chromium' }],
+            },
+        },
+        base: './',
+        define: {
+            __COMMIT_HASH__: JSON.stringify(commitHash),
+            __VITEST__: !!process.env.VITEST,
+            'process.env.CI': JSON.stringify(process.env.CI ?? ''),
+        },
+        worker: {
+            format: 'es',
+        },
+        resolve: {
+            alias: {
+                '!lucide': '/node_modules/lucide-static/icons',
+                '!simpleicons': '/node_modules/simple-icons/icons',
+                '!': '/node_modules',
+
+                events: '/node_modules/events/events.js',
+                pocketbase: '/node_modules/pocketbase/dist/pocketbase.es.js',
+                stream: path.resolve(__dirname, 'stream-stub.js'), // Stub for stream module
+            },
+        },
+        optimizeDeps: {
+            exclude: ['pocketbase', '@ffmpeg/ffmpeg', '@ffmpeg/util'],
+            include: ['workbox-window', '@sentry/browser', '@capacitor/haptics', 'fuse.js'],
+        },
+        server: {
+            fs: {
+                allow: ['.', 'node_modules'],
+                // host: true,
+                // allowedHosts: ['<your_tailscale_hostname>'], // e.g. pi5.tailf5f622.ts.net
+            },
+            watch: {
+                // 编辑器/工具在源码目录写临时文件时,Windows 上 watcher 会因 EBUSY 崩掉整台 dev server;
+                // 浏览器 profile 的 Cookies 等文件会被锁定;运行产物不参与源码 HMR,直接忽略。
+                ignored: [
+                    '**/.*.tmpdir/**',
+                    '**/*.tmpdir/**',
+                    '**/verify/.tmp/**',
+                    '**/.cache/**',
+                    '**/artifacts/**',
+                    '**/dist/**',
+                    // Rust 构建目录: cargo 编译时反复重写 `.exe`/fingerprint, Windows
+                    // 上 watcher 遇到被占用的句柄会 EBUSY 并让整个 dev server 退出
+                    // (编译 demo 的 Tauri 外壳时必现)。这些文件不参与源码 HMR。
+                    '**/target/**',
+                ],
+            },
+        },
+        // preview: {
+        //     host: true,
+        //     allowedHosts: ['<your_tailscale_hostname>'], // e.g. pi5.tailf5f622.ts.net
+        // },
+        build: {
+            outDir: 'dist',
+            emptyOutDir: true,
+            sourcemap: false,
+            minify: 'esbuild',
+            reportCompressedSize: false,
+            rollupOptions: {
+                treeshake: true,
+            },
+        },
+        plugins: [
+            proxyAudioPlugin(),
+            authGatePlugin(),
+            uploadPlugin(),
+            blobAssetPlugin(),
+            svgUse(),
+            creationPreviewFetchPlugin(),
+            kikoeruApiProxyPlugin(),
+            youtubeMetaPlugin(),
+            VitePWA({
+                registerType: 'prompt',
+                devOptions: {
+                    enabled: true,
+                    type: 'classic',
+                    disableRuntimeConfig: true,
+                    suppressWarnings: true,
+                },
+                workbox: {
+                    skipWaiting: true,
+                    clientsClaim: true,
+                    globPatterns: ['index.html', 'manifest.json'],
+                    cleanupOutdatedCaches: true,
+                    maximumFileSizeToCacheInBytes: 3 * 1024 * 1024, // 3 MiB limit
+                    // Define runtime caching strategies
+                    runtimeCaching: [
+                        {
+                            urlPattern: ({ request }) =>
+                                request.destination === 'script' || request.destination === 'worker',
+                            handler: isDev ? 'NetworkFirst' : 'CacheFirst',
+                            options: {
+                                cacheName: 'scripts',
+                                expiration: {
+                                    maxEntries: 200,
+                                    maxAgeSeconds: 60 * 24 * 60 * 60,
+                                },
+                            },
+                        },
+                        {
+                            urlPattern: ({ request }) =>
+                                request.destination === 'style' || request.destination === 'font',
+                            handler: 'CacheFirst',
+                            options: {
+                                cacheName: 'static-resources',
+                                expiration: {
+                                    maxEntries: 60,
+                                    maxAgeSeconds: 60 * 24 * 60 * 60,
+                                },
+                            },
+                        },
+                        {
+                            urlPattern: ({ request }) => request.destination === 'image',
+                            handler: 'StaleWhileRevalidate',
+                            options: {
+                                cacheName: 'images',
+                                expiration: {
+                                    maxEntries: 500,
+                                    maxAgeSeconds: 30 * 24 * 60 * 60, // 30 Days
+                                },
+                            },
+                        },
+                        {
+                            urlPattern: ({ request }) =>
+                                request.destination === 'audio' || request.destination === 'video',
+                            handler: 'CacheFirst',
+                            options: {
+                                cacheName: 'media',
+                                expiration: {
+                                    maxEntries: 50,
+                                    maxAgeSeconds: 60 * 24 * 60 * 60, // 60 Days
+                                },
+                                rangeRequests: true, // Support scrubbing
+                            },
+                        },
+                    ],
+                },
+                includeAssets: ['discord.html'],
+                manifest: false, // Use existing public/manifest.json
+            }),
+        ],
+    };
+});

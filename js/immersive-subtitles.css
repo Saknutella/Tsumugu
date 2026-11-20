@@ -1,0 +1,344 @@
+/* 沉浸式全屏字幕（js/immersive-subtitles.js 的配套样式）。
+ *
+ * 独立文件而不是追加进 styles.css：这套样式只服务沉浸模式，全部挂在
+ * `immersive-subtitles-mode` / `immersive-subtitles-*` 命名下，不修改任何既有全屏规则，
+ * 上游同步时这份文件是纯新增。
+ *
+ * 布局职责：
+ *   · mode 下把「封面列 + 播放控件」让出去，只留歌词栏铺满视口；
+ *   · 不改 .ui-hidden / .controls-idle 的既有语义，visualizer 与左上角按钮保持原行为；
+ *   · 3D 卷轴由 JS 每帧写 transform，CSS 只负责透视、排版与状态外观。
+ */
+
+/* ------------------------------------------------------------ 全屏框架让位 */
+
+#fullscreen-cover-overlay.immersive-subtitles-mode .fullscreen-cover-content {
+    padding: 0;
+}
+
+#fullscreen-cover-overlay.immersive-subtitles-mode .fullscreen-main-view {
+    display: block;
+    width: 100%;
+    height: 100%;
+    padding: 0;
+    gap: 0;
+}
+
+/* 封面/曲目信息/进度条/播放按钮都在 media 列；沉浸模式只留歌词与 visualizer 背景。 */
+#fullscreen-cover-overlay.immersive-subtitles-mode .fullscreen-media-column {
+    display: none !important;
+}
+
+#fullscreen-cover-overlay.immersive-subtitles-mode .fullscreen-lyrics-pane {
+    display: flex;
+    align-items: stretch;
+    width: 100%;
+    height: 100%;
+    max-width: none;
+    min-height: 0;
+    margin: 0;
+    transform: none;
+    opacity: 1;
+    visibility: visible;
+}
+
+#fullscreen-cover-overlay.immersive-subtitles-mode .fullscreen-lyrics-shell {
+    width: 100%;
+    height: 100%;
+    margin: 0;
+}
+
+#fullscreen-cover-overlay.immersive-subtitles-mode .fullscreen-lyrics-content {
+    width: 100%;
+    height: 100%;
+    padding: 0;
+    overflow: hidden;
+    mask-image: none;
+}
+
+/* 容器本身保持 position:relative，root 用 absolute 铺满，方便 pane 尺寸变化时重排。 */
+#fullscreen-cover-overlay .fullscreen-lyrics-content.immersive-subtitles-container {
+    position: relative;
+    padding: 0;
+    overflow: hidden;
+}
+
+/* ------------------------------------------------------------------ 卷轴根 */
+
+.immersive-subtitles {
+    position: absolute;
+    inset: 0;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    overflow: hidden;
+    color: #f6f4ef;
+    font-family: var(--font-family, system-ui, sans-serif);
+    user-select: none;
+    touch-action: none;
+    cursor: default;
+    -webkit-tap-highlight-color: transparent;
+}
+
+.immersive-subtitles.is-browsing,
+.immersive-subtitles.is-dragging {
+    cursor: grabbing;
+}
+
+/* -------------------------------------------------------------- 3D 舞台 */
+
+.immersive-subtitles-stage {
+    position: absolute;
+    inset: 0;
+    perspective: clamp(900px, 120vh, 1600px);
+    perspective-origin: 50% 50%;
+    transform-style: preserve-3d;
+    overflow: hidden;
+
+    /* 上下边缘做渐隐，browsing 展开的多条 cue 不会硬切在屏幕边。 */
+    mask-image: linear-gradient(180deg, transparent 0%, #000 16%, #000 84%, transparent 100%);
+    pointer-events: none;
+}
+
+.immersive-subtitles-cue {
+    position: absolute;
+    left: 50%;
+    top: 50%;
+
+    /* fit-content 让 browsing 的虚线目标框贴着文字，而不是横跨整块舞台。 */
+    width: fit-content;
+    max-width: min(86%, 960px);
+    margin: 0;
+    text-align: center;
+    white-space: pre-wrap;
+    overflow-wrap: anywhere;
+    font-size: clamp(1.7rem, 3.4vw, 3.15rem);
+    font-weight: 600;
+    line-height: 1.3;
+    letter-spacing: -0.02em;
+    color: rgb(246 244 239 / 0.96);
+    text-shadow: 0 2px 26px rgb(0 0 0 / 0.5);
+    transform-origin: 50% 50%;
+    backface-visibility: hidden;
+    will-change: transform, opacity;
+
+    /* opacity 交给过渡而不是 JS 硬切：卷回正常态时多余 cue 是“淡出卷走”的。 */
+    transition:
+        opacity 0.18s ease,
+        color 0.2s ease;
+    pointer-events: none;
+}
+
+.immersive-subtitles-cue.is-current {
+    color: #fff;
+    text-shadow:
+        0 0 36px rgb(255 255 255 / 0.16),
+        0 4px 30px rgb(0 0 0 / 0.55);
+}
+
+/* browsing 的目标 cue：虚线框 + 提亮，但不用 current 的发光，语义上不是“正在播放”。 */
+.immersive-subtitles-cue.is-target {
+    color: #fff;
+}
+
+.immersive-subtitles-cue.is-target::before {
+    content: '';
+    position: absolute;
+    inset: -0.5em -0.95em;
+    border: 1px dashed rgb(246 244 239 / 0.42);
+    border-radius: 1.05em;
+    pointer-events: none;
+}
+
+/* ------------------------------------------------------------ 虚线卷轴轴 */
+
+.immersive-subtitles-axis {
+    position: absolute;
+    left: clamp(1.25rem, 6vw, 6rem);
+    right: clamp(1.25rem, 6vw, 6rem);
+    top: 50%;
+    height: 0;
+    border-top: 1px dashed rgb(246 244 239 / 0.3);
+    opacity: 0;
+    transform: translateY(-0.5px);
+    transition: opacity 0.24s ease;
+
+    /* 中间留空，虚线只在文字两侧出现，不穿过 cue 本体。 */
+    mask-image: linear-gradient(90deg, #000 0 33%, transparent 33% 67%, #000 67% 100%);
+    pointer-events: none;
+}
+
+.immersive-subtitles-axis::before,
+.immersive-subtitles-axis::after {
+    content: '';
+    position: absolute;
+    top: -3px;
+    width: 5px;
+    height: 5px;
+    border-radius: 50%;
+    background: rgb(246 244 239 / 0.5);
+}
+
+.immersive-subtitles-axis::before {
+    left: -2px;
+}
+
+.immersive-subtitles-axis::after {
+    right: -2px;
+}
+
+.immersive-subtitles.is-browsing .immersive-subtitles-axis {
+    opacity: 1;
+}
+
+/* ---------------------------------------------------------------- 状态条 */
+
+.immersive-subtitles-status {
+    position: absolute;
+    left: 50%;
+    bottom: clamp(1.25rem, 5vh, 2.5rem);
+    transform: translateX(-50%);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 0.85rem;
+    font-size: 0.68rem;
+    font-weight: 600;
+    letter-spacing: 0.24em;
+    text-transform: uppercase;
+    color: rgb(246 244 239 / 0.4);
+    font-variant-numeric: tabular-nums;
+    pointer-events: none;
+    white-space: nowrap;
+}
+
+.immersive-subtitles-hint,
+.immersive-subtitles-release {
+    transition: opacity 0.2s ease;
+}
+
+.immersive-subtitles-release {
+    color: rgb(246 244 239 / 0.62);
+}
+
+.immersive-subtitles-release[hidden],
+.immersive-subtitles-hint[hidden] {
+    display: none;
+}
+
+.immersive-subtitles-counter {
+    padding-left: 0.85rem;
+    border-left: 1px dashed rgb(246 244 239 / 0.24);
+    color: rgb(246 244 239 / 0.62);
+}
+
+.immersive-subtitles-counter:empty {
+    display: none;
+}
+
+/* ------------------------------------------------------------ 加载/错误态 */
+
+.immersive-subtitles-message {
+    position: absolute;
+    inset: 0;
+    display: none;
+    align-items: center;
+    justify-content: center;
+    padding: 2rem;
+    text-align: center;
+    font-size: clamp(0.95rem, 1.6vw, 1.15rem);
+    letter-spacing: 0.02em;
+    color: rgb(246 244 239 / 0.56);
+    pointer-events: none;
+}
+
+.immersive-subtitles.is-message .immersive-subtitles-message {
+    display: flex;
+}
+
+.immersive-subtitles.is-message .immersive-subtitles-stage,
+.immersive-subtitles.is-message .immersive-subtitles-status {
+    visibility: hidden;
+}
+
+/* 屏幕阅读器播报当前 cue；视觉上完全隐藏。 */
+.immersive-subtitles-live {
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    margin: -1px;
+    padding: 0;
+    overflow: hidden;
+    clip-path: inset(50%);
+    white-space: nowrap;
+    border: 0;
+}
+
+/* -------------------------------------------------------------- 响应式 */
+
+@media (max-width: 980px) {
+    #fullscreen-cover-overlay.immersive-subtitles-mode .fullscreen-main-view {
+        display: block;
+        padding: 0;
+    }
+
+    #fullscreen-cover-overlay.immersive-subtitles-mode .fullscreen-lyrics-pane {
+        width: 100%;
+        height: 100%;
+        min-height: 0;
+        max-width: none;
+    }
+
+    #fullscreen-cover-overlay.immersive-subtitles-mode .fullscreen-lyrics-content {
+        padding: 0;
+        mask-image: none;
+    }
+
+    .immersive-subtitles-cue {
+        width: fit-content;
+        max-width: min(90%, 720px);
+        font-size: clamp(1.45rem, 5.6vw, 2.35rem);
+        line-height: 1.26;
+    }
+}
+
+@media (max-width: 640px) {
+    .immersive-subtitles-status {
+        bottom: calc(1rem + env(safe-area-inset-bottom));
+        font-size: 0.6rem;
+        letter-spacing: 0.18em;
+    }
+
+    .immersive-subtitles-axis {
+        left: 0.9rem;
+        right: 0.9rem;
+    }
+}
+
+/* 移动端手势/安全区细化（例如触感反馈、横屏间距）暂未做：当前先用桌面 wheel/长按
+ * 同一套 pointer 逻辑，root 已设 touch-action:none，不会带动页面滚动。 */
+
+@media (prefers-reduced-motion: reduce) {
+    .immersive-subtitles-cue,
+    .immersive-subtitles-axis,
+    .immersive-subtitles-hint,
+    .immersive-subtitles-release,
+    .immersive-subtitles-counter {
+        transition: none;
+    }
+}
+
+/* 沉浸模式只保留中心字幕和左上角按钮；侧栏重新打开的小浮标也属于额外 UI。 */
+body:has(#fullscreen-cover-overlay.immersive-subtitles-mode) #side-panel-reopen {
+    display: none;
+}
+
+/* browsing 时只保留“当前时间”那条高亮；其他 cue 降为辅助色。
+   目标 cue 仍由虚线框表示，不再用文字亮度抢 current。 */
+.immersive-subtitles.is-browsing .immersive-subtitles-cue:not(.is-current) {
+    color: rgb(246 244 239 / 0.32);
+}
+
+.immersive-subtitles.is-browsing .immersive-subtitles-cue.is-target:not(.is-current) {
+    color: rgb(246 244 239 / 0.7);
+}

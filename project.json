@@ -1,0 +1,18 @@
+{
+  "schema": "deepseek-project/1",
+  "name": "monochrome",
+  "title": "Monochrome(二开)",
+  "kind": "web",
+  "summary": "以 monochrome-music/monochrome 为基础的二开音乐播放器:品牌与功能定制、精简、自托管数据源,并规划 Tauri 沉浸式桌面封装。",
+  "status": "wip",
+  "created": "2026-10-25",
+  "stack": ["node>=20", "npm>=10", "browser"],
+  "commands": {
+    "run": "npm run dev",
+    "build": "npm run build",
+    "test": "node verify/check.mjs && node verify/kind.mjs"
+  },
+  "artifacts": ["dist/", "node_modules/", "dev-dist/", "verify/.tmp/"],
+  "evidence": "verify/evidence",
+  "notes": "上游 monochrome-music/monochrome 的 fork(基线 cedea44,Apache-2.0);二开约定与文档见 docs/README.md。"
+}

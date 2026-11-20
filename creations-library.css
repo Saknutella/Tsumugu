@@ -1,0 +1,931 @@
+/* Library and creator works share cards; attachment readers keep their own layout. */
+#page-creations .creations-page {
+    max-width: 1500px;
+    padding: 24px 24px 120px;
+}
+
+#creations-feed-view .creations-header {
+    align-items: center;
+    margin-bottom: 24px;
+}
+#creations-feed-view .creations-library-heading,
+#creations-feed-view .creations-header-actions {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+}
+#creations-feed-view .section-title {
+    margin: 0;
+}
+#creations-library-total {
+    color: var(--muted-foreground);
+    font-size: 0.85rem;
+    white-space: nowrap;
+}
+#creations-feed-view .creations-header-actions {
+    gap: 8px;
+}
+#creations-feed-view .creations-header-actions .btn {
+    min-height: 38px;
+    gap: 6px;
+}
+#creations-feed-view .creations-import-panel {
+    padding: 16px;
+    margin-bottom: 24px;
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    background: var(--card);
+}
+#creations-feed-view .creations-import-heading {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 12px;
+}
+#creations-feed-view .creations-import-heading h2 {
+    margin: 0;
+    font-size: 1rem;
+}
+#creations-feed-view .creations-import-methods {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 8px;
+    margin: 14px 0;
+}
+#creations-feed-view .creations-import-panel .creations-subtitle {
+    font-size: 0.8rem;
+}
+#creations-feed-view .creations-import-options {
+    margin-bottom: 0;
+}
+#creations-feed-view .creations-library-toolbar {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 12px;
+}
+#creations-feed-view .creations-library-search {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    width: min(430px, 100%);
+    min-width: 170px;
+    padding: 0 12px;
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    background: var(--card);
+    color: var(--muted-foreground);
+}
+#creations-feed-view .creations-library-search > span {
+    flex-shrink: 0;
+    padding-right: 10px;
+    border-right: 1px solid var(--border);
+    font-size: 0.72rem;
+    color: var(--foreground);
+    white-space: nowrap;
+}
+#creations-feed-view .creations-library-search:focus-within {
+    outline: 2px solid var(--ring);
+    outline-offset: 2px;
+}
+#creations-library-search {
+    width: 100%;
+    min-width: 0;
+    height: 40px;
+    border: 0;
+    padding: 0;
+    background: transparent;
+    color: var(--foreground);
+    font: inherit;
+    font-size: 0.85rem;
+    outline: none;
+}
+#creations-feed-view .creations-library-tools,
+#creations-feed-view .creations-library-tools label {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+}
+#creations-feed-view .creations-library-tools {
+    flex-shrink: 0;
+    gap: 16px;
+}
+#creations-feed-view .creations-library-tools label {
+    font-size: 0.8rem;
+    color: var(--muted-foreground);
+}
+#creations-feed-view .creations-library-tools select {
+    height: 40px;
+    max-width: 165px;
+    padding: 0 26px 0 10px;
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    background: var(--card);
+    color: var(--foreground);
+    font: inherit;
+}
+#creations-feed-view .creations-library-status {
+    margin: 14px 0;
+    color: var(--muted-foreground);
+    font-size: 0.75rem;
+}
+#creations-feed-view .creations-library-facets {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    margin-bottom: 18px;
+    min-width: 0;
+}
+#creations-feed-view .creations-library-facets > span {
+    color: var(--muted-foreground);
+    font-size: 0.75rem;
+    flex-shrink: 0;
+}
+#creations-feed-view .creations-tags {
+    min-width: 0;
+    flex: 1;
+    flex-wrap: nowrap;
+    overflow-x: auto;
+    margin: 0;
+    padding: 2px 0 5px;
+    scrollbar-width: thin;
+}
+#creations-feed-view .creations-tag {
+    flex-shrink: 0;
+    white-space: nowrap;
+}
+:is(#creations-feed, .creation-creator-page #artist-detail-albums) {
+    grid-template-columns: repeat(auto-fill, minmax(230px, 1fr));
+    gap: 28px 20px;
+}
+:is(#creations-feed, .creation-creator-page #artist-detail-albums) .creation-card {
+    min-width: 0;
+    border-color: transparent;
+    background: transparent;
+}
+:is(#creations-feed, .creation-creator-page #artist-detail-albums) .creation-card:hover {
+    border-color: var(--border);
+    background: var(--card);
+}
+:is(#creations-feed, .creation-creator-page #artist-detail-albums) .creation-card:focus-visible {
+    outline: 2px solid var(--ring);
+    outline-offset: 3px;
+}
+:is(#creations-feed, .creation-creator-page #artist-detail-albums) .creation-card.creation-card--selected {
+    border-color: var(--highlight);
+    background: var(--card);
+}
+:is(#creations-feed, .creation-creator-page #artist-detail-albums) .creation-card-cover-wrap {
+    position: relative;
+    overflow: hidden;
+    border-radius: var(--radius);
+}
+:is(#creations-feed, .creation-creator-page #artist-detail-albums) .creation-card-cover {
+    aspect-ratio: 4 / 3;
+}
+:is(#creations-feed, .creation-creator-page #artist-detail-albums) .creation-card-date {
+    position: absolute;
+    right: 0.55rem;
+    bottom: 0.55rem;
+    z-index: 2;
+    padding: 0.18rem 0.48rem;
+    border: 1px solid rgb(255 255 255 / 24%);
+    border-radius: 5px;
+    background: rgb(0 0 0 / 42%);
+    color: #fff;
+    font-size: 0.72rem;
+    font-variant-numeric: tabular-nums;
+    line-height: 1.35;
+    letter-spacing: 0.02em;
+    text-shadow: 0 1px 2px rgb(0 0 0 / 45%);
+    backdrop-filter: blur(4px);
+    pointer-events: none;
+}
+:is(#creations-feed, .creation-creator-page #artist-detail-albums) .creation-card-body {
+    padding: 12px 6px;
+}
+:is(#creations-feed, .creation-creator-page #artist-detail-albums) .creation-meta {
+    flex-wrap: nowrap;
+    gap: 6px;
+    min-width: 0;
+}
+:is(#creations-feed, .creation-creator-page #artist-detail-albums) .creation-meta > span {
+    min-width: 0;
+    flex: 1;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+:is(#creations-feed, .creation-creator-page #artist-detail-albums)
+    .creation-meta
+    :is(.creation-card-avatar, .creation-creator-filter) {
+    flex-shrink: 0;
+}
+:is(#creations-feed, .creation-creator-page #artist-detail-albums) .creation-card h2 {
+    display: -webkit-box;
+    -webkit-box-orient: vertical;
+    -webkit-line-clamp: 3;
+    overflow: hidden;
+    min-height: 2.9em;
+    margin: 0 0 6px;
+    font-size: 0.95rem;
+    line-height: 1.45;
+}
+:is(#creations-feed, .creation-creator-page #artist-detail-albums) .creation-excerpt {
+    display: -webkit-box;
+    -webkit-box-orient: vertical;
+    -webkit-line-clamp: 2;
+    overflow: hidden;
+    min-height: 3em;
+    margin: 0 0 10px;
+    font-size: 0.8rem;
+    line-height: 1.5;
+}
+:is(#creations-feed, .creation-creator-page #artist-detail-albums) .creation-badges {
+    margin-top: 0;
+    padding-top: 0;
+    margin-bottom: 6px;
+}
+:is(#creations-feed, .creation-creator-page #artist-detail-albums) .creation-card-tags {
+    min-height: 0;
+    gap: 4px;
+    flex-wrap: wrap;
+    align-content: flex-start;
+    margin-top: 0;
+    padding-top: 6px;
+}
+:is(#creations-feed, .creation-creator-page #artist-detail-albums) .creation-card-byline {
+    min-height: 24px;
+    margin-bottom: 6px;
+    align-content: center;
+    align-items: center;
+}
+:is(#creations-feed, .creation-creator-page #artist-detail-albums) .creation-card-byline .creation-author-link {
+    min-height: 24px;
+    padding: 0;
+    border: 0;
+    border-radius: 0;
+    background: transparent;
+    color: var(--foreground);
+    font-size: 0.78rem;
+    font-weight: 600;
+    gap: 6px;
+    max-width: 100%;
+    min-width: 0;
+    text-decoration: none;
+}
+:is(#creations-feed, .creation-creator-page #artist-detail-albums) .creation-tag-more {
+    color: var(--muted-foreground);
+    font-size: 0.7rem;
+}
+:is(#creations-feed, .creation-creator-page #artist-detail-albums) .creation-select-check {
+    opacity: 0;
+    transition: opacity 140ms ease;
+}
+:is(#creations-feed, .creation-creator-page #artist-detail-albums)
+    .creation-card:is(:hover, :focus-within)
+    .creation-select-check,
+:is(#creations-feed, .creation-creator-page #artist-detail-albums).is-selecting .creation-select-check {
+    opacity: 1;
+}
+:is(#creations-feed, .creation-creator-page #artist-detail-albums) .creations-empty {
+    grid-column: 1 / -1;
+    padding: 36px 16px;
+    text-align: center;
+}
+:is(#creations-feed, .creation-creator-page #artist-detail-albums) .creations-empty h2 {
+    font-size: 1rem;
+}
+#creations-feed-view [hidden] {
+    display: none;
+}
+@media (hover: none) {
+    :is(#creations-feed, .creation-creator-page #artist-detail-albums) .creation-select-check {
+        opacity: 1;
+    }
+}
+@media (max-width: 950px) {
+    #creations-feed-view .creations-library-toolbar {
+        flex-wrap: wrap;
+    }
+    #creations-feed-view .creations-library-search {
+        width: 100%;
+    }
+    #creations-feed-view .creations-library-tools {
+        width: 100%;
+        justify-content: space-between;
+    }
+}
+@media (max-width: 700px) {
+    #page-creations .creations-page {
+        padding: 16px 8px 150px;
+    }
+
+    #creations-feed-view {
+        margin-inline: -8px;
+    }
+    #creations-feed-view .creations-header {
+        flex-direction: row;
+        flex-wrap: wrap;
+        gap: 12px;
+        margin-bottom: 20px;
+    }
+    #creations-feed-view .creations-header-actions .btn {
+        padding: 6px 10px;
+    }
+    #creations-feed-view .creations-library-heading {
+        gap: 8px;
+    }
+    #creations-library-total {
+        font-size: 0.75rem;
+    }
+    #creations-feed-view .creations-library-tools {
+        gap: 12px;
+        align-items: flex-end;
+        flex-wrap: wrap;
+    }
+    #creations-feed-view .creations-library-tools label {
+        flex: 1;
+        min-width: 0;
+        flex-direction: column;
+        align-items: stretch;
+        gap: 5px;
+        font-size: 0.72rem;
+    }
+    #creations-feed-view .creations-library-tools select {
+        width: 100%;
+        max-width: none;
+        min-width: 0;
+    }
+    :is(#creations-feed, .creation-creator-page #artist-detail-albums) {
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+        gap: 20px 10px;
+    }
+    :is(#creations-feed, .creation-creator-page #artist-detail-albums) .creation-card-body {
+        padding: 10px 3px;
+    }
+    :is(#creations-feed, .creation-creator-page #artist-detail-albums) .creation-card h2 {
+        font-size: 0.83rem;
+    }
+    :is(#creations-feed, .creation-creator-page #artist-detail-albums) .creation-excerpt {
+        font-size: 0.72rem;
+    }
+    :is(#creations-feed, .creation-creator-page #artist-detail-albums) .creation-meta {
+        font-size: 0.67rem;
+        gap: 4px;
+    }
+    :is(#creations-feed, .creation-creator-page #artist-detail-albums) .creation-card-avatar {
+        width: 20px;
+        height: 20px;
+    }
+    :is(#creations-feed, .creation-creator-page #artist-detail-albums) .creation-creator-filter {
+        width: 20px;
+        height: 20px;
+    }
+    :is(#creations-feed, .creation-creator-page #artist-detail-albums) .creation-badge {
+        font-size: 0.6rem;
+        padding: 1px 5px;
+    }
+    :is(#creations-feed, .creation-creator-page #artist-detail-albums) .creation-tag {
+        font-size: 0.65rem;
+    }
+    :is(#creations-feed, .creation-creator-page #artist-detail-albums) .creation-card-date {
+        font-size: 0.6rem;
+    }
+}
+@media (max-width: 350px) {
+    :is(#creations-feed, .creation-creator-page #artist-detail-albums) {
+        grid-template-columns: minmax(0, 1fr);
+    }
+}
+@media (prefers-reduced-motion: reduce) {
+    :is(#creations-feed, .creation-creator-page #artist-detail-albums) .creation-select-check {
+        transition: none;
+    }
+}
+
+/* The portal is attached to body so it can clear the library header and clipping ancestors. */
+.creation-filter-panel {
+    position: fixed;
+    z-index: 1100;
+    box-sizing: border-box;
+    width: min(620px, calc(100vw - 32px));
+    max-height: min(680px, calc(100dvh - 32px));
+    overflow-y: auto;
+    overscroll-behavior: contain;
+    padding: 20px;
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    background: var(--card);
+    color: var(--foreground);
+    box-shadow: var(--shadow-lg);
+    animation: creation-filter-enter 140ms ease-out;
+}
+.creation-filter-panel[hidden],
+#creations-filter-active[hidden],
+#creations-filter-count[hidden] {
+    display: none !important;
+}
+.creation-filter-head {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 16px;
+    margin-bottom: 16px;
+}
+.creation-filter-head h2 {
+    margin: 0;
+    font-size: 1rem;
+}
+.creation-filter-head button {
+    flex-shrink: 0;
+    min-width: 32px;
+    min-height: 32px;
+}
+.creation-filter-search input {
+    box-sizing: border-box;
+    width: 100%;
+    min-width: 0;
+    min-height: 40px;
+    padding: 8px 12px;
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    background: var(--background);
+    color: var(--foreground);
+    font: inherit;
+}
+.creation-filter-group {
+    min-width: 0;
+    padding: 0;
+    margin: 20px 0;
+    border: 0;
+}
+.creation-filter-group legend {
+    margin-bottom: 10px;
+    padding: 0;
+    font-size: 0.8rem;
+    color: var(--muted-foreground);
+}
+.creation-filter-options,
+.creation-filter-active {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 8px;
+}
+.creation-filter-active {
+    margin: 12px 0 16px;
+}
+.creation-filter-option,
+.creation-filter-chip {
+    --filter-accent: var(--foreground);
+    display: inline-flex;
+    align-items: center;
+    gap: 7px;
+    box-sizing: border-box;
+    max-width: 100%;
+    min-height: 34px;
+    padding: 6px 10px;
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    background: color-mix(in srgb, var(--filter-accent) 8%, var(--card));
+    color: var(--filter-accent);
+    font: inherit;
+    font-size: 0.8rem;
+    cursor: pointer;
+    transition:
+        background 140ms ease,
+        border-color 140ms ease;
+}
+.creation-filter-option span,
+.creation-filter-chip {
+    overflow-wrap: anywhere;
+}
+.creation-filter-option img {
+    flex: 0 0 24px;
+    width: 24px;
+    height: 24px;
+    border-radius: 50%;
+    object-fit: cover;
+}
+.creation-filter-option em {
+    font-size: 0.72rem;
+    font-style: normal;
+    opacity: 0.7;
+    font-variant-numeric: tabular-nums;
+}
+.creation-filter-option:hover:not(:disabled),
+.creation-filter-chip:hover {
+    background: color-mix(in srgb, var(--filter-accent) 16%, var(--card));
+    border-color: var(--filter-accent);
+}
+.creation-filter-option[aria-pressed='true'] {
+    border-color: var(--filter-accent);
+    box-shadow: inset 0 0 0 1px var(--filter-accent);
+    background: color-mix(in srgb, var(--filter-accent) 18%, var(--card));
+}
+.creation-filter-option:disabled {
+    opacity: 0.4;
+    cursor: default;
+    background: transparent;
+}
+.creation-filter-option[data-kind='tag'],
+.creation-filter-chip[data-kind='tag'] {
+    --filter-accent: #a78bfa;
+}
+:is(.creation-filter-option, .creation-filter-chip)[data-kind='media'][data-value='audio'] {
+    --filter-accent: #38bdf8;
+}
+:is(.creation-filter-option, .creation-filter-chip)[data-kind='media'][data-value='image'] {
+    --filter-accent: #fbbf24;
+}
+:is(.creation-filter-option, .creation-filter-chip)[data-kind='media'][data-value='video'] {
+    --filter-accent: #fb7185;
+}
+:is(.creation-filter-option, .creation-filter-chip)[data-kind='media'][data-value='text'] {
+    --filter-accent: #a78bfa;
+}
+:is(.creation-filter-option, .creation-filter-chip)[data-kind='media'][data-value='archive'] {
+    --filter-accent: #fb923c;
+}
+:is(.creation-filter-option, .creation-filter-chip)[data-kind='media'][data-value='file'] {
+    --filter-accent: #94a3b8;
+}
+:is(.creation-filter-option, .creation-filter-chip)[data-kind='media'][data-value='link'] {
+    --filter-accent: #2dd4bf;
+}
+.creation-filter-panel footer {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    flex-wrap: wrap;
+    gap: 12px;
+    padding-top: 12px;
+    border-top: 1px solid var(--border);
+}
+#creations-filter-summary {
+    color: var(--muted-foreground);
+    font-size: 0.75rem;
+}
+.creation-filter-reset {
+    padding: 6px 4px;
+    border: 0;
+    border-radius: 4px;
+    background: transparent;
+    color: var(--muted-foreground);
+    font: inherit;
+    font-size: 0.8rem;
+    cursor: pointer;
+}
+.creation-filter-reset:hover {
+    color: var(--foreground);
+    text-decoration: underline;
+}
+.creation-filter-reset:focus-visible {
+    outline: 2px solid var(--ring);
+    outline-offset: 2px;
+}
+#creations-filter-count {
+    min-width: 1.4em;
+    padding: 1px 5px;
+    border-radius: var(--radius-full);
+    background: var(--highlight);
+    color: var(--background);
+    font-size: 0.75rem;
+}
+#creations-filter-toggle[aria-expanded='true'] {
+    border-color: var(--ring);
+    box-shadow: inset 0 0 0 1px var(--ring);
+}
+.creation-filter-panel :is(button, input):focus-visible,
+.creation-filter-chip:focus-visible,
+#creations-filter-toggle:focus-visible {
+    outline: 2px solid var(--ring);
+    outline-offset: 3px;
+}
+:is(#creations-feed, .creation-creator-page #artist-detail-albums) .creation-author-link {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    min-width: 0;
+    max-width: 100%;
+    min-height: 28px;
+    border-radius: 5px;
+    color: var(--muted-foreground);
+    text-decoration: none;
+}
+:is(#creations-feed, .creation-creator-page #artist-detail-albums) .creation-author-link:hover {
+    color: var(--foreground);
+    background: var(--muted);
+}
+:is(#creations-feed, .creation-creator-page #artist-detail-albums) .creation-author-link:focus-visible {
+    outline: 2px solid var(--ring);
+    outline-offset: 2px;
+}
+.creation-card-author-avatar {
+    flex: 0 0 22px;
+    width: 22px;
+    height: 22px;
+    border-radius: 50%;
+    object-fit: cover;
+}
+.creation-card-author-name {
+    min-width: 0;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+@keyframes creation-filter-enter {
+    from {
+        opacity: 0;
+    }
+    to {
+        opacity: 1;
+    }
+}
+@media (max-width: 480px) {
+    .creation-filter-panel {
+        padding: 16px;
+    }
+}
+@media (prefers-reduced-motion: reduce) {
+    .creation-filter-panel {
+        animation: none;
+    }
+    .creation-filter-option,
+    .creation-filter-chip {
+        transition: none;
+    }
+}
+
+/* 创作/音声筛选按钮统一为同一套按钮结构、图标尺寸和计数徽标。 */
+#creations-filter-toggle,
+#voices-filter-toggle {
+    display: inline-flex;
+    flex-direction: row;
+    flex-wrap: nowrap;
+    align-items: center;
+    justify-content: center;
+    gap: 0.45rem;
+    width: auto;
+    min-width: max-content;
+    flex-shrink: 0;
+    min-height: 2.25rem;
+    padding: 0.45rem 0.9rem;
+    border-radius: var(--radius);
+    line-height: 1;
+    white-space: nowrap;
+    font-size: 0.85rem;
+}
+
+#creations-filter-toggle > svg,
+#voices-filter-toggle > svg {
+    flex: 0 0 16px;
+    width: 16px;
+    height: 16px;
+}
+
+#creations-filter-count,
+#voices-filter-count,
+.voices-filter-count {
+    display: inline-grid;
+    place-items: center;
+    flex: 0 0 auto;
+    min-width: 1.3rem;
+    height: 1.3rem;
+    margin-left: 0.22rem;
+    padding: 0 0.32rem;
+    border-radius: 999px;
+    background: var(--highlight);
+    color: var(--primary-foreground);
+    font-size: 0.68rem;
+    font-weight: 700;
+    line-height: 1;
+}
+
+#creations-filter-count[hidden],
+#voices-filter-count[hidden] {
+    display: none;
+}
+
+#creations-filter-toggle.is-active,
+#voices-filter-toggle.is-active {
+    border-color: color-mix(in srgb, var(--highlight) 45%, var(--border));
+    color: var(--highlight);
+}
+
+#creations-filter-toggle[aria-expanded='true'],
+#voices-filter-toggle[aria-expanded='true'] {
+    border-color: var(--ring);
+    box-shadow: inset 0 0 0 1px var(--ring);
+}
+
+/* 创作者 chip 显示头像，但保持中性灰，不参与分类色。 */
+#creations-filter-active .creation-filter-chip[data-kind='creator'] {
+    --filter-accent: var(--foreground);
+}
+
+.creation-filter-chip-avatar {
+    flex: 0 0 18px;
+    width: 18px;
+    height: 18px;
+    border-radius: 50%;
+    object-fit: cover;
+}
+
+/* 音声选中 tag 的强调比创作更强。 */
+#voices-filter-panel .creation-filter-option[aria-pressed='true'] {
+    border-width: 3px;
+    box-shadow:
+        inset 0 0 0 1px var(--filter-accent),
+        0 0 0 2px color-mix(in srgb, var(--filter-accent) 35%, transparent);
+}
+
+/* Creation cards use the same clickable metadata pattern as the voice library:
+   avatar filters by creator, tags filter by tag, while the creator name still
+   opens the creator page. */
+.creation-card-author-avatar-btn {
+    display: inline-flex;
+    flex: none;
+    align-items: center;
+    justify-content: center;
+    padding: 0;
+    border: 0;
+    border-radius: 50%;
+    background: transparent;
+    cursor: pointer;
+}
+
+.creation-card-author-avatar-btn:focus-visible {
+    outline: 2px solid var(--ring);
+    outline-offset: 2px;
+}
+
+:is(#creations-feed, .creation-creator-page #artist-detail-albums) .creation-tag {
+    cursor: pointer;
+}
+
+:is(#creations-feed, .creation-creator-page #artist-detail-albums) .creation-tag:focus-visible {
+    outline: 2px solid var(--ring);
+    outline-offset: 2px;
+    border-radius: 4px;
+}
+
+/* Keep the creation import panel on the exact same disclosure shell as the
+   voice import panel: same bubble tail, heading rhythm, URL form and options. */
+#creations-feed-view .creations-import-panel {
+    position: relative;
+}
+
+#creations-feed-view .creations-import-tail {
+    position: absolute;
+    top: calc(var(--bubble-tail-size, 20px) * -0.72);
+    left: 0;
+    width: var(--bubble-tail-size, 20px);
+    height: calc(var(--bubble-tail-size, 20px) * 0.72 + 1px);
+    background: var(--border);
+    clip-path: polygon(50% 0, 100% 100%, 0 100%);
+    pointer-events: none;
+    z-index: 2;
+}
+
+#creations-feed-view .creations-import-tail::after {
+    content: '';
+    position: absolute;
+    inset: 2px 2px -2px;
+    background: var(--card);
+    clip-path: polygon(50% 0, 100% 100%, 0 100%);
+}
+
+#creations-feed-view .creations-import-panel .voices-import-form {
+    margin: 1rem 0 0.6rem;
+}
+
+#creations-feed-view .creations-import-methods {
+    margin: 0;
+}
+
+#creations-feed-view .creations-import-panel .creations-import-options {
+    margin-top: 0.6rem;
+}
+
+:is(#creations-feed, .creation-creator-page #artist-detail-albums) .creation-card-author-avatar-btn {
+    display: inline-flex;
+    flex: 0 0 22px;
+    align-items: center;
+    justify-content: center;
+    width: 22px;
+    height: 22px;
+    padding: 0;
+    border: 0;
+    border-radius: 50%;
+    background: transparent;
+    overflow: hidden;
+}
+
+:is(#creations-feed, .creation-creator-page #artist-detail-albums) .creation-card-author-avatar {
+    display: block;
+    width: 22px;
+    height: 22px;
+    border-radius: 50%;
+    object-fit: cover;
+}
+
+:is(#creations-feed, .creation-creator-page #artist-detail-albums) .creation-badge-type[data-filter-media] {
+    cursor: pointer;
+    text-decoration: none;
+}
+
+:is(#creations-feed, .creation-creator-page #artist-detail-albums) .creation-badge-type[data-filter-media]:hover {
+    border-color: currentColor;
+}
+
+:is(#creations-feed, .creation-creator-page #artist-detail-albums) .creation-badge-type[data-filter-media].is-active {
+    box-shadow: inset 0 0 0 1px currentColor;
+}
+
+/* Creation detail file rows use the same compact icon-action language as the
+   voice album file rows, not the filled secondary-button pills. */
+#page-creations .creation-attachment .track-item-actions {
+    justify-self: end;
+    gap: 0.25rem;
+    min-width: 0;
+}
+
+#page-creations .creation-attachment .track-item-actions :is(a, button) {
+    padding: 0.25rem 0.45rem;
+    border: 0;
+    border-radius: 5px;
+    background: transparent;
+    color: var(--muted-foreground);
+    font-size: 0.72rem;
+    line-height: 1.4;
+    cursor: pointer;
+}
+
+#page-creations .creation-attachment .track-item-actions :is(a, button):hover {
+    background: var(--secondary);
+    color: var(--foreground);
+}
+
+#page-creations .creation-attachment .track-item-actions .creation-row-action {
+    min-height: 0;
+}
+
+#page-creations .voice-album-row-hitbox[hidden] {
+    display: none !important;
+}
+
+/* Description rows collapse/expand as a unit so hiding them never leaves a
+   blank tree-row gap above the remaining files. */
+#page-creations .voice-album-row-hitbox.is-description-animated {
+    display: block;
+    min-height: 0;
+    max-height: 120px;
+    overflow: hidden;
+    transition: max-height 220ms ease, opacity 160ms ease;
+}
+
+#page-creations .voice-album-row-hitbox.is-description-animated.is-description-hidden {
+    min-height: 0;
+    max-height: 0;
+    opacity: 0;
+    pointer-events: none;
+}
+
+/* Creation-detail folder rows use the same compact three-dot affordance as
+   voice-detail folder rows. The popup itself reuses .voice-folder-menu. */
+#page-creations .creation-folder-menu {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    flex: none;
+    width: 26px;
+    height: 26px;
+    margin-left: 0.25rem;
+    padding: 0;
+    border: 0;
+    border-radius: 50%;
+    background: transparent;
+    color: var(--muted-foreground);
+    cursor: pointer;
+    opacity: 0.72;
+    transition: background-color var(--transition-fast), color var(--transition-fast), opacity var(--transition-fast);
+}
+
+#page-creations .creation-folder-menu:hover,
+#page-creations .creation-folder-menu:focus-visible {
+    background: var(--secondary);
+    color: var(--foreground);
+    opacity: 1;
+}
+
+#page-creations .creation-folder-popup {
+    z-index: 2600;
+}
+
+#page-creations .voice-folder-selector {
+    display: grid;
+    place-items: center;
+    cursor: pointer;
+}

@@ -1,0 +1,939 @@
+/* Scope the library layout: Videos shares the original voices form/card primitives. */
+#page-voices .voices-page {
+    max-width: 1500px;
+    padding: 24px 24px 120px;
+}
+#page-voices .voices-header {
+    align-items: center;
+    margin-bottom: 24px;
+}
+#page-voices .voices-library-heading,
+#page-voices .voices-header-actions {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+}
+#page-voices .voices-library-heading .section-title {
+    margin: 0;
+}
+#page-voices .voices-library-total {
+    color: var(--muted-foreground);
+    font-size: 0.85rem;
+    white-space: nowrap;
+}
+#page-voices .voices-header-actions {
+    flex-shrink: 0;
+    gap: 8px;
+}
+#page-voices .voices-header-actions .btn {
+    min-height: 38px;
+    gap: 6px;
+}
+
+#page-voices .voices-import-panel {
+    position: relative;
+    padding: 16px;
+    margin-bottom: 24px;
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    background: var(--card);
+}
+
+/* The tail is a real element so its offset follows the button on resize. */
+#page-voices .voices-import-tail {
+    position: absolute;
+    top: calc(var(--bubble-tail-size, 20px) * -0.72);
+    left: 0;
+    width: var(--bubble-tail-size, 20px);
+    height: calc(var(--bubble-tail-size, 20px) * 0.72 + 1px);
+    background: var(--border);
+    clip-path: polygon(50% 0, 100% 100%, 0 100%);
+    pointer-events: none;
+    z-index: 2;
+}
+
+/* The clipped triangle itself would lose the panel outline. Draw an inner
+   triangle one pixel smaller so the outer triangle remains the border, and
+   extend it 1px past the bottom so the line joins the panel's top edge. */
+#page-voices .voices-import-tail::after {
+    content: '';
+    position: absolute;
+    inset: 2px 2px -2px;
+    background: var(--card);
+    clip-path: polygon(50% 0, 100% 100%, 0 100%);
+}
+
+#page-voices .voices-import-heading {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 12px;
+}
+#page-voices .voices-import-heading h2 {
+    margin: 0;
+    font-size: 1rem;
+}
+#page-voices .voices-import-panel .voices-subtitle {
+    font-size: 0.8rem;
+}
+#page-voices .voices-import-panel .creations-import-options {
+    margin-bottom: 0;
+}
+#page-voices .voices-library-toolbar {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 12px;
+}
+#page-voices .voices-library-search {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    width: min(480px, 100%);
+    min-width: 160px;
+    padding: 0 12px;
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    background: var(--card);
+    color: var(--muted-foreground);
+}
+#page-voices .voices-library-search:focus-within {
+    outline: 2px solid var(--ring);
+    outline-offset: 2px;
+}
+#page-voices .voices-library-search-scope {
+    flex-shrink: 0;
+    padding-right: 10px;
+    border-right: 1px solid var(--border);
+    color: var(--foreground);
+    font-size: 0.72rem;
+    white-space: nowrap;
+}
+#page-voices .voices-library-search input {
+    width: 100%;
+    min-width: 0;
+    height: 40px;
+    border: 0;
+    padding: 0;
+    background: transparent;
+    color: var(--foreground);
+    font: inherit;
+    font-size: 0.85rem;
+    outline: none;
+}
+#page-voices .voices-library-tools,
+#page-voices .voices-library-sort {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    flex-shrink: 0;
+}
+#page-voices .voices-library-sort {
+    color: var(--muted-foreground);
+    font-size: 0.8rem;
+}
+#page-voices .voices-library-sort select {
+    height: 40px;
+    max-width: 180px;
+    padding: 0 28px 0 10px;
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    color: var(--foreground);
+    background: var(--card);
+    font: inherit;
+}
+#page-voices .voices-library-status {
+    margin: 14px 0 16px;
+    color: var(--muted-foreground);
+    font-size: 0.75rem;
+}
+#page-voices .voices-grid {
+    grid-template-columns: repeat(auto-fill, minmax(230px, 1fr));
+    gap: 24px 18px;
+}
+#page-voices .voice-card {
+    min-width: 0;
+    border-color: transparent;
+    background: transparent;
+}
+#page-voices .voice-card:hover {
+    border-color: var(--border);
+    background: var(--card);
+}
+#page-voices .voice-card:focus-visible {
+    outline: 2px solid var(--ring);
+    outline-offset: 3px;
+}
+#page-voices .voice-card.voice-card--selected {
+    border-color: var(--highlight);
+    background: var(--card);
+}
+#page-voices .voice-card-cover-wrap {
+    border-radius: var(--radius);
+    overflow: hidden;
+}
+#page-voices .voice-card-age {
+    position: absolute;
+    bottom: 8px;
+    left: 8px;
+    z-index: 2;
+    border-radius: 4px;
+    background: var(--card);
+    line-height: 1;
+    pointer-events: none;
+}
+#page-voices .voice-card-age .voice-age-tag {
+    display: inline-block;
+    margin: 0;
+    padding: 3px 6px;
+    font-size: 0.65rem;
+}
+#page-voices .voice-card-body {
+    padding: 12px 6px;
+}
+#page-voices .voice-card h2 {
+    display: -webkit-box;
+    -webkit-box-orient: vertical;
+    -webkit-line-clamp: 3;
+    overflow: hidden;
+    min-height: 4.35em;
+    margin: 0 0 8px;
+    font-size: 0.95rem;
+    line-height: 1.45;
+}
+#page-voices .voice-card .voice-creators {
+    min-height: 32px;
+    align-content: flex-start;
+    align-items: flex-start;
+    margin-bottom: 6px;
+    gap: 4px;
+}
+/* Existing category colors stay untouched; only density changes in the library. */
+#page-voices .voice-card .voice-creator-row {
+    max-width: 100%;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    font-size: 0.72rem;
+}
+#page-voices .voice-card-stats {
+    gap: 12px;
+    font-size: 0.72rem;
+}
+#page-voices .voice-card-tags {
+    min-height: 32px;
+    align-content: flex-start;
+    margin-top: 8px;
+    gap: 4px;
+}
+#page-voices .voice-card-tags .voice-tag-chip {
+    font-size: 0.68rem;
+}
+#page-voices .voice-select-check {
+    opacity: 0;
+    transition: opacity 140ms ease;
+}
+#page-voices .voice-card:is(:hover, :focus-within) .voice-select-check,
+#page-voices .voices-grid.is-selecting .voice-select-check {
+    opacity: 1;
+}
+#page-voices [hidden] {
+    display: none;
+}
+@media (hover: none) {
+    #page-voices .voice-select-check {
+        opacity: 1;
+    }
+}
+@media (max-width: 700px) {
+    #page-voices .voices-page {
+        padding: 16px 8px 150px;
+    }
+    #page-voices .voices-header {
+        flex-direction: row;
+        flex-wrap: wrap;
+        gap: 12px;
+        margin-bottom: 20px;
+    }
+    #page-voices .voices-header-actions .btn {
+        padding: 6px 10px;
+    }
+    #page-voices .voices-library-heading {
+        gap: 8px;
+    }
+    #page-voices .voices-library-total {
+        font-size: 0.75rem;
+    }
+    #page-voices .voices-library-toolbar {
+        flex-wrap: wrap;
+    }
+    #page-voices .voices-library-search {
+        width: 100%;
+    }
+    #page-voices .voices-library-tools {
+        width: 100%;
+        justify-content: space-between;
+    }
+    #page-voices .voices-grid {
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+        gap: 18px 10px;
+    }
+    #page-voices .voice-card-body {
+        padding: 10px 3px;
+    }
+    #page-voices .voice-card h2 {
+        font-size: 0.83rem;
+    }
+    #page-voices .voice-card .voice-creator-row {
+        font-size: 0.65rem;
+        padding: 1px 5px;
+    }
+    #page-voices .voice-card-tags .voice-tag-chip {
+        font-size: 0.63rem;
+        padding: 1px 5px;
+    }
+    #page-voices .voice-card-stats {
+        gap: 8px;
+        font-size: 0.67rem;
+    }
+    #page-voices .voice-cover-badge {
+        font-size: 0.6rem;
+    }
+}
+@media (max-width: 350px) {
+    #page-voices .voices-grid {
+        grid-template-columns: minmax(0, 1fr);
+    }
+}
+@media (prefers-reduced-motion: reduce) {
+    #page-voices .voice-select-check {
+        transition: none;
+    }
+}
+
+/* File-storage sidecar status, Tauri-only. */
+.file-storage-status {
+    align-self: center;
+    font-size: 12px;
+    line-height: 1.35;
+    color: var(--text-secondary, #9ca3af);
+    white-space: normal;
+}
+
+.file-storage-status[data-state="error"] {
+    color: var(--danger, #f87171);
+}
+
+/* Local file-library import lives inside the Import work panel. */
+.voices-local-import {
+    margin-top: 16px;
+    padding-top: 14px;
+    border-top: 1px solid var(--border-color, rgba(255, 255, 255, 0.12));
+}
+
+.voices-local-import-heading {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    margin-bottom: 6px;
+}
+
+.voices-local-import-heading h3 {
+    margin: 0;
+    /* Match the "Import work" panel heading exactly. */
+    font-size: 1rem;
+    font-weight: 600;
+}
+
+.voices-local-import-badge {
+    padding: 1px 6px;
+    border: 1px solid var(--border-color, rgba(255, 255, 255, 0.18));
+    border-radius: 999px;
+    color: var(--text-secondary, #9ca3af);
+    font-size: 10px;
+    letter-spacing: 0.02em;
+}
+
+.voices-local-import-hint {
+    margin: 0 0 10px;
+    color: var(--text-secondary, #9ca3af);
+    font-size: 12px;
+    line-height: 1.5;
+}
+
+.voices-local-import-actions {
+    display: grid;
+    grid-template-columns: max-content max-content minmax(0, 1fr);
+    align-items: center;
+    column-gap: 10px;
+    row-gap: 8px;
+}
+
+.voices-local-import-actions .btn {
+    justify-self: start;
+}
+
+.voices-local-import .file-storage-status {
+    min-width: 0;
+    max-width: 100%;
+    overflow-wrap: anywhere;
+}
+
+@media (max-width: 720px) {
+    .voices-local-import-actions {
+        grid-template-columns: 1fr;
+    }
+}
+
+.voice-local-badge {
+    display: inline-flex;
+    align-items: center;
+    padding: 1px 6px;
+    border: 1px solid var(--border);
+    border-radius: 999px;
+    font-size: 0.66rem;
+    font-weight: 600;
+    line-height: 1.4;
+    white-space: nowrap;
+}
+
+.voice-local-badge.is-full {
+    color: #047857;
+    background: rgba(16, 185, 129, 0.18);
+    border-color: rgba(5, 150, 105, 0.55);
+}
+
+.voice-local-badge.is-partial {
+    color: #92400e;
+    background: rgba(251, 191, 36, 0.22);
+    border-color: rgba(217, 119, 6, 0.55);
+}
+
+[data-theme='dark'] .voice-local-badge.is-full {
+    color: #6ee7b7;
+    background: rgba(16, 185, 129, 0.16);
+}
+
+[data-theme='dark'] .voice-local-badge.is-partial {
+    color: #fcd34d;
+    background: rgba(251, 191, 36, 0.14);
+}
+
+.voice-price {
+    color: var(--muted-foreground);
+    font-variant-numeric: tabular-nums;
+}
+
+/* Keep the folder gutter in the untransformed layout shared by folders and files. */
+#page-album .voice-album-hierarchy {
+    --voice-tree-step: 18px;
+    --voice-tree-checkbox: 20px;
+    --voice-tree-gap: 4px;
+    --voice-tree-inset: 11px;
+    --voice-tree-stroke: 1.5px;
+    --voice-tree-caret-size: 12px;
+    --voice-tree-color-1: #2f7d78;
+    --voice-tree-color-2: #b57532;
+    --voice-tree-color-3: #7159b0;
+    --voice-tree-color-4: #4c72a8;
+    --voice-tree-color-5: #b05b78;
+    --voice-tree-color-6: #5d8a49;
+    --voice-tree-color-7: #8a6a3e;
+    --voice-tree-color-8: #5f748f;
+    width: 100%;
+}
+
+#page-album .voice-album-folder[data-voice-depth='0'] { --voice-tree-color: var(--muted-foreground); }
+#page-album .voice-album-folder[data-voice-depth='1'] { --voice-tree-color: var(--voice-tree-color-1); }
+#page-album .voice-album-folder[data-voice-depth='2'] { --voice-tree-color: var(--voice-tree-color-2); }
+#page-album .voice-album-folder[data-voice-depth='3'] { --voice-tree-color: var(--voice-tree-color-3); }
+#page-album .voice-album-folder[data-voice-depth='4'] { --voice-tree-color: var(--voice-tree-color-4); }
+#page-album .voice-album-folder[data-voice-depth='5'] { --voice-tree-color: var(--voice-tree-color-5); }
+#page-album .voice-album-folder[data-voice-depth='6'] { --voice-tree-color: var(--voice-tree-color-6); }
+#page-album .voice-album-folder[data-voice-depth='7'] { --voice-tree-color: var(--voice-tree-color-7); }
+#page-album .voice-album-folder[data-voice-depth='8'] { --voice-tree-color: var(--voice-tree-color-8); }
+
+#page-album :is(.voice-album-folder, .voice-album-row-hitbox) {
+    --voice-tree-indent: calc(var(--voice-depth, 0) * var(--voice-tree-step));
+    position: relative;
+}
+
+#page-album .voice-album-folder {
+    /* The disclosure arrow and the outgoing rail share the same gutter axis. */
+    --voice-tree-axis: calc(var(--voice-tree-checkbox) + var(--voice-tree-gap) + var(--voice-tree-inset) + var(--voice-tree-indent) - 3px);
+    --voice-tree-rail-x: calc(var(--voice-tree-axis) - var(--voice-tree-stroke) / 2);
+    --voice-tree-rail-color: color-mix(in srgb, var(--voice-tree-color, var(--muted-foreground)) 42%, transparent);
+}
+
+#page-album .voice-album-hierarchy > .voice-album-folder + .voice-album-folder {
+    margin-block-start: 6px;
+}
+
+#page-album :is(.voice-album-folder-row, .voice-album-row-hitbox) {
+    display: grid;
+    grid-template-columns: var(--voice-tree-checkbox) minmax(0, 1fr);
+    gap: var(--voice-tree-gap);
+    padding-block: 1px;
+}
+
+#page-album .voice-album-folder-row {
+    position: relative;
+    list-style: none;
+    cursor: pointer;
+    font-size: 0.78rem;
+    font-weight: 600;
+    color: var(--muted-foreground);
+}
+
+#page-album .voice-album-folder-row::-webkit-details-marker {
+    display: none;
+}
+
+#page-album .voice-folder-main {
+    display: flex;
+    align-items: center;
+    gap: 0.4rem;
+    min-width: 0;
+    min-height: 38px;
+    margin-inline-start: calc(var(--voice-tree-indent) + var(--voice-tree-inset));
+    padding-inline: 5px var(--spacing-sm);
+    border-radius: var(--radius-sm);
+    transition: background-color var(--transition-fast), color var(--transition-fast);
+}
+
+#page-album .voice-album-folder-row:is(:hover, :focus-visible) > .voice-folder-main {
+    background-color: var(--track-hover-bg, var(--secondary));
+    color: var(--foreground);
+}
+
+#page-album :is(.voice-album-folder-icon, .voice-album-folder-caret) {
+    flex: none;
+    color: color-mix(in srgb, var(--voice-tree-color, var(--muted-foreground)) 55%, var(--muted-foreground));
+}
+
+#page-album .voice-album-folder-caret {
+    position: absolute;
+    inset-block-start: calc(50% - var(--voice-tree-caret-size) / 2);
+    inset-inline-start: calc(var(--voice-tree-axis) - var(--voice-tree-caret-size) / 2);
+    inline-size: var(--voice-tree-caret-size);
+    block-size: var(--voice-tree-caret-size);
+    transition: transform var(--transition-fast);
+}
+
+#page-album .voice-album-folder-row[aria-expanded='true'] .voice-album-folder-caret {
+    transform: rotate(90deg);
+}
+
+#page-album .voice-album-folder-name {
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+#page-album .voice-album-folder-count {
+    flex: none;
+    margin-inline-start: auto;
+    font-size: 0.7rem;
+    font-weight: 400;
+    color: var(--muted-foreground);
+}
+
+/* Each group passes its own guide to its direct children. The last child ends
+   at its own row center, even when that child is an expanded folder. */
+#page-album .voice-album-folder-children {
+    --voice-branch-x: var(--voice-tree-rail-x);
+    --voice-branch-color: var(--voice-tree-rail-color);
+}
+
+#page-album .voice-album-folder[open]:has(> .voice-album-folder-children > *) > .voice-album-folder-row::after {
+    content: '';
+    position: absolute;
+    inset-block: calc(50% + var(--voice-tree-caret-size) / 2 + 3px) 0;
+    inset-inline-start: var(--voice-tree-rail-x);
+    inline-size: var(--voice-tree-stroke);
+    background: var(--voice-tree-rail-color);
+    pointer-events: none;
+}
+
+#page-album .voice-album-folder-children > .voice-album-folder:not(:last-child)::before {
+    content: '';
+    position: absolute;
+    inset-block: 0;
+    inset-inline-start: var(--voice-branch-x);
+    inline-size: var(--voice-tree-stroke);
+    background: var(--voice-branch-color);
+    pointer-events: none;
+}
+
+#page-album .voice-album-folder-children > .voice-album-folder > .voice-album-folder-row::before,
+#page-album .voice-album-folder-children > .voice-album-row-hitbox::before {
+    content: '';
+    position: absolute;
+    inset-block: 0;
+    inset-inline-start: var(--voice-branch-x);
+    inline-size: calc(var(--voice-tree-step) - var(--voice-branch-gap, 2px));
+    background:
+        linear-gradient(var(--voice-branch-color), var(--voice-branch-color))
+            0 0 / var(--voice-tree-stroke) var(--voice-branch-length, 0px) no-repeat,
+        linear-gradient(var(--voice-branch-color), var(--voice-branch-color))
+            var(--voice-tree-stroke) center / calc(100% - var(--voice-tree-stroke)) var(--voice-tree-stroke) no-repeat;
+    pointer-events: none;
+}
+
+#page-album .voice-album-folder-row {
+    --voice-branch-gap: calc(var(--voice-tree-caret-size) / 2 + 2px);
+}
+
+#page-album .voice-album-folder-children > .voice-album-row-hitbox {
+    --voice-branch-length: 100%;
+}
+
+#page-album .voice-album-folder-children > .voice-album-row-hitbox:last-child,
+#page-album .voice-album-folder-children > .voice-album-folder:last-child > .voice-album-folder-row {
+    --voice-branch-length: calc(50% + var(--voice-tree-stroke) / 2);
+}
+
+/* Only the inset row surface scales. The hitbox, checkbox and tree guide keep
+   their dimensions and the row has a single background in every state. */
+#page-album .voice-album-row-hitbox {
+    overflow: clip;
+}
+
+#page-album .voice-album-row-hitbox:is(:hover, :focus-within) {
+    z-index: 1;
+}
+
+#page-album .voice-album-row-hitbox > .voice-album-track-row {
+    margin-inline-start: calc(var(--voice-tree-indent) + var(--voice-tree-inset));
+    /* A centered 1.005 scale grows by 0.25% on each side. Reserve the end so
+       the hover paint fits without adding to the folder's scrollable width. */
+    margin-inline-end: max(1px, 0.25%);
+    padding-inline-start: var(--spacing-sm);
+    border-inline-start: 3px solid transparent;
+    transition: transform var(--transition-fast), background-color var(--transition-fast);
+}
+
+#page-album .voice-album-row-hitbox:hover > .voice-album-track-row {
+    transform: scale(1.005);
+    background-color: var(--track-hover-bg, var(--secondary));
+}
+
+#page-album .voice-album-row-hitbox:active > .voice-album-track-row {
+    transform: scale(0.99);
+}
+
+#page-album .voice-album-row-hitbox > .voice-album-track-row.playing {
+    border-inline-start-color: var(--highlight);
+    background-color: rgb(var(--highlight-rgb), 0.15);
+}
+
+#page-album .voice-album-row-hitbox > .voice-album-track-row:is(.selected, .voice-row-selected) {
+    background-color: rgb(var(--highlight-rgb), 0.1);
+}
+
+body.multi-select-mode #page-album .voice-album-row-hitbox > .track-item {
+    transform: none;
+}
+
+@media (max-width: 640px) {
+    #page-album .voice-album-hierarchy {
+        --voice-tree-step: 14px;
+        --voice-tree-inset: 8px;
+    }
+
+    #page-album .voice-folder-main {
+        padding-inline-end: 4px;
+    }
+
+    #page-album .voice-album-row-hitbox > .voice-album-track-row {
+        grid-template-columns: 20px minmax(0, 1fr) auto auto;
+        column-gap: 5px;
+        padding-inline: 3px 4px;
+    }
+
+    #page-album .voice-album-track-row .track-number {
+        width: auto;
+    }
+
+    #page-album .voice-album-track-row .title {
+        display: -webkit-box;
+        -webkit-box-orient: vertical;
+        -webkit-line-clamp: 2;
+        overflow-wrap: anywhere;
+        white-space: normal;
+    }
+}
+
+@media (prefers-reduced-motion: reduce) {
+    #page-album :is(.voice-folder-main, .voice-album-track-row, .voice-album-folder-caret) {
+        transition: none;
+    }
+
+    #page-album .voice-album-row-hitbox:is(:hover, :active) > .voice-album-track-row {
+        transform: none;
+    }
+}
+
+#page-album .voice-tree-heading {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+}
+
+#page-album .voice-tree-heading-index {
+    flex: none;
+    width: 1ch;
+    color: var(--muted-foreground);
+    font-size: 0.75rem;
+    font-variant-numeric: tabular-nums;
+    text-align: center;
+}
+
+.voice-meta-editor {
+    position: fixed;
+    inset: 0;
+    z-index: 2500;
+    display: grid;
+    place-items: center;
+    background: rgba(0, 0, 0, 0.45);
+    padding: 24px;
+}
+
+.voice-meta-dialog {
+    width: min(760px, 100%);
+    max-height: min(86vh, 900px);
+    overflow: auto;
+    padding: 18px 20px 16px;
+    border: 1px solid var(--border);
+    border-radius: 16px;
+    background: var(--card);
+    color: var(--foreground);
+    box-shadow: 0 24px 80px rgba(0, 0, 0, 0.35);
+}
+
+.voice-meta-dialog header,
+.voice-meta-dialog footer {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 12px;
+}
+
+.voice-meta-dialog h2 {
+    margin: 0;
+    font-size: 1.05rem;
+}
+
+.voice-meta-close {
+    border: 0;
+    background: transparent;
+    color: var(--muted-foreground);
+    font-size: 1.5rem;
+    line-height: 1;
+    cursor: pointer;
+}
+
+.voice-meta-hint {
+    margin: 8px 0 14px;
+    color: var(--muted-foreground);
+    font-size: 0.78rem;
+}
+
+.voice-meta-grid {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 10px 14px;
+}
+
+.voice-meta-field {
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+    font-size: 0.76rem;
+    color: var(--muted-foreground);
+}
+
+.voice-meta-field input,
+.voice-meta-field select,
+.voice-meta-field textarea {
+    width: 100%;
+    box-sizing: border-box;
+    padding: 0.4rem 0.5rem;
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    background: var(--background);
+    color: var(--foreground);
+    font: inherit;
+}
+
+.voice-meta-field textarea {
+    resize: vertical;
+}
+
+.voice-meta-check {
+    flex-direction: row;
+    align-items: center;
+    justify-content: space-between;
+}
+
+.voice-meta-check input {
+    width: auto;
+}
+
+.voice-meta-dialog footer {
+    margin-top: 16px;
+    justify-content: flex-end;
+}
+
+@media (max-width: 640px) {
+    .voice-meta-grid {
+        grid-template-columns: minmax(0, 1fr);
+    }
+}
+
+/* These two actions are text actions, unlike the native 40x40 icon buttons. */
+#page-album .detail-header-actions #voice-edit-metadata,
+#page-album .detail-header-actions #voice-save-storage {
+    width: auto;
+    height: 40px;
+    min-width: 0;
+    padding: 0 14px;
+    border-radius: var(--radius-full);
+    font-size: 0.75rem;
+    font-weight: 600;
+    line-height: 1;
+    white-space: nowrap;
+}
+
+/* The voice file tree has no separate # column; keep the heading at its old
+   first-column position instead of leaving a 40px empty gutter. */
+#page-album #album-detail-tracklist > .track-list-header {
+    grid-template-columns: minmax(0, 1fr) 80px 48px;
+}
+
+
+/* Price is detail-only; keep the compact derived badges aligned on the stats row. */
+#page-voices .voice-card-stats {
+    align-items: center;
+}
+
+#page-voices .voice-card-stats .voice-tag-chip--subtitle {
+    display: inline-flex;
+    align-items: center;
+    height: 18px;
+    padding: 0 6px;
+    margin: 0;
+    border-radius: 999px;
+    font-size: 0.62rem;
+    line-height: 1;
+    white-space: nowrap;
+}
+
+/* Local availability is a tag-like derived facet, not a special filled badge. */
+.voice-tag-chip--local {
+    --tag-accent: #34d399;
+    cursor: pointer;
+}
+
+#page-voices .voice-card-stats .voice-local-badge {
+    display: inline-flex;
+    align-items: center;
+    height: 18px;
+    padding: 0 6px;
+    margin: 0;
+    border-radius: 999px;
+    font-size: 0.62rem;
+    line-height: 1;
+    white-space: nowrap;
+}
+
+#page-voices .voice-tag-chip--local.is-full,
+#page-voices .voice-tag-chip--local.is-partial {
+    color: color-mix(in srgb, var(--tag-accent) 72%, var(--foreground));
+    background: color-mix(in srgb, var(--tag-accent) 11%, transparent);
+    border-color: color-mix(in srgb, var(--tag-accent) 36%, transparent);
+}
+
+#page-voices .voice-tag-chip--local.is-partial {
+    --tag-accent: #fbbf24;
+}
+
+/* Partial local works keep the online tree; individual files that are not in
+   the host yet are marked so the user can see what remains. */
+.voice-file-local-state.is-missing {
+    display: inline-flex;
+    align-items: center;
+    margin-left: 0.45rem;
+    padding: 0 0.4rem;
+    border: 1px dashed color-mix(in srgb, var(--muted-foreground) 45%, transparent);
+    border-radius: 999px;
+    color: var(--muted-foreground);
+    font-size: 0.62rem;
+    font-weight: 500;
+    line-height: 1.5;
+    vertical-align: middle;
+    white-space: nowrap;
+}
+
+/* Voice file-row download is an icon button, not a text link. Keep the
+   native .btn/.btn-secondary hit area while collapsing it to a 16px glyph. */
+#page-album .voice-file-download.btn {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 34px;
+    height: 34px;
+    padding: 0;
+    flex: none;
+}
+
+#page-album .voice-file-download.btn svg {
+    width: 16px;
+    height: 16px;
+    pointer-events: none;
+}
+
+#page-album .voice-open-location {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 40px;
+    height: 40px;
+    padding: 0;
+    flex: none;
+}
+
+#page-album .voice-open-location svg {
+    width: 18px;
+    height: 18px;
+    pointer-events: none;
+}
+
+#page-album .voice-album-track-row .voice-file-menu-btn {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    padding: 0.5rem;
+    border: none;
+    border-radius: var(--radius);
+    background: transparent;
+    color: var(--muted-foreground);
+    cursor: pointer;
+    opacity: 1;
+    transition: background-color var(--transition), color var(--transition);
+}
+
+#page-album .voice-album-track-row .voice-file-menu-btn:hover,
+#page-album .voice-album-track-row .voice-file-menu-btn:focus-visible {
+    background-color: rgb(var(--highlight-rgb), 0.2);
+    color: var(--foreground);
+}
+
+.voice-folder-menu-item.is-danger {
+    color: #ef4444;
+}
+
+.voice-storage-action.is-danger {
+    color: #ef4444;
+}

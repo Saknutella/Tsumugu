@@ -1,0 +1,99 @@
+#page-album .voice-row-selector {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    cursor: pointer;
+}
+.voice-native-checkbox {
+    /* Match the creation-detail selector, slightly smaller so it sits inside
+     * the redesigned tree gutter without crowding the disclosure arrow. */
+    appearance: none;
+    -webkit-appearance: none;
+    display: inline-grid;
+    place-content: center;
+    width: 20px;
+    height: 20px;
+    margin: 0;
+    padding: 0;
+    border: 1.5px solid var(--border);
+    border-radius: 5px;
+    background: var(--card);
+    color: var(--primary-foreground);
+    cursor: pointer;
+    flex: 0 0 auto;
+}
+.voice-native-checkbox:hover {
+    border-color: var(--muted-foreground);
+}
+.voice-native-checkbox:checked {
+    border-color: var(--highlight);
+    background: var(--highlight);
+}
+.voice-native-checkbox:checked::after {
+    content: '';
+    width: 10px;
+    height: 6px;
+    border-bottom: 2px solid var(--primary-foreground);
+    border-left: 2px solid var(--primary-foreground);
+    transform: translateY(-1px) rotate(-45deg);
+}
+.voice-native-checkbox:indeterminate {
+    border-color: var(--highlight);
+    background: var(--highlight);
+}
+.voice-native-checkbox:indeterminate::after {
+    content: '';
+    width: 10px;
+    height: 2px;
+    background: var(--primary-foreground);
+}
+.voice-native-checkbox:focus-visible {
+    outline: 2px solid var(--ring);
+    outline-offset: 2px;
+}
+#page-album .voice-folder-selector {
+    display: grid;
+    place-items: center;
+    cursor: pointer;
+}
+#page-album[data-voice-work-id] #album-detail-tracklist > .track-list-header {
+    padding-left: calc(var(--spacing-sm) + 28px);
+}
+.voice-selection-toolbar {
+    /* Shared with creation: the visible bar comes from .creation-attachment-toolbar.
+     * Keep it in normal flow so the file list does not jump under the pointer. */
+    --voice-toolbar-pad: 0.7rem;
+
+    position: relative;
+}
+
+/* Widen the card to the left so the select box keeps the tree column while the
+ * rounded border still has the shared creation-toolbar padding. */
+#page-album .voice-selection-toolbar {
+    margin-inline-start: calc(-1 * var(--voice-toolbar-pad) - 1px);
+}
+.voice-select-all-label {
+    display: inline-flex;
+    align-items: center;
+    gap: 8px;
+    cursor: pointer;
+    white-space: nowrap;
+}
+.voice-selection-toolbar #voice-selection-count {
+    color: var(--muted-foreground);
+}
+/* Reserve the controls' space so the first checked row does not jump under the pointer. */
+#page-album .voice-selection-toolbar[data-empty='true'] .voice-selection-actions {
+    visibility: hidden;
+    pointer-events: none;
+}
+#page-album .voice-selection-toolbar[data-empty='true'] .voice-selection-actions button {
+    pointer-events: none;
+}
+#page-album .voice-selection-toolbar[data-empty='true'] .voice-selection-actions button:disabled {
+    cursor: default;
+}
+#page-album .voice-selection-actions #voice-selection-download[data-voice-download-busy] {
+    cursor: progress;
+    opacity: 0.55;
+}

@@ -1,0 +1,25 @@
+<!-- @license lucide-static v0.577.0 - ISC -->
+<!-- 悬浮字幕开关专用:主体与播放条 #toggle-lyrics-btn 的 mic-vocal 完全一致,
+     只在左右补三条声波短线表示“悬浮发声”。stroke-width/viewBox 保持不变,
+     由 vite-plugin-svg-use 的 <use svg="..." size="20" /> 渲染。 -->
+<svg
+  class="lucide lucide-mic-vocal"
+  xmlns="http://www.w3.org/2000/svg"
+  width="24"
+  height="24"
+  viewBox="0 0 24 24"
+  fill="none"
+  stroke="currentColor"
+  stroke-width="2"
+  stroke-linecap="round"
+  stroke-linejoin="round"
+>
+  <path d="m11 7.601-5.994 8.19a1 1 0 0 0 .1 1.298l.817.818a1 1 0 0 0 1.314.087L15.09 12" />
+  <path d="M16.5 21.174C15.5 20.5 14.372 20 13 20c-2.058 0-3.928 2.356-6 2-2.072-.356-2.775-3.369-1.5-4.5" />
+  <circle cx="16" cy="7" r="5" />
+  <path d="M2.6 3.4h1.9" />
+  <path d="M1.9 7h2.6" />
+  <path d="M2.6 10.6h1.9" />
+  <path d="M21.8 4.9h1.2" />
+  <path d="M21.8 9.1h1.2" />
+</svg>
