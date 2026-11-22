@@ -203,6 +203,24 @@ function readWorks(options) {
         ...(Array.isArray(browserWorks) ? browserWorks : []),
         ...usableFileWorks,
     ];
+    // A partial host work is filtered out of `merged` on purpose (the online
+    // record owns the remote tree), but its cover is the copy already on disk and
+    // the only fresh one: `/api/works` re-signs media every session, while a
+    // `cover` persisted in localStorage is either absent or a dead signed URL.
+    // Lend that cover to whichever record the album will actually resolve.
+    if (Array.isArray(fileWorks)) {
+        const covers = new Map();
+        for (const work of fileWorks) {
+            const code = codeOf(work);
+            if (code && work?.cover && !covers.has(code)) covers.set(code, work.cover);
+        }
+        if (covers.size) {
+            for (const work of [...localWorks, ...merged]) {
+                const cover = work ? covers.get(codeOf(work)) : null;
+                if (cover) work.cover = cover;
+            }
+        }
+    }
     if (merged.length === 0) return localWorks;
     const ids = new Set(merged.map((work) => work?.id));
     return [...merged, ...localWorks.filter((work) => !ids.has(work?.id))];

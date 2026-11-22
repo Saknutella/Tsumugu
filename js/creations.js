@@ -229,7 +229,7 @@ const selectedAttachmentIds = new Set();
 let detailSession = null;
 
 // Mirror of ALLOWED_TAGS / ALLOWED_ATTRS in
-// rust-backend/crates/storage-host/src/html.rs — 两边各洗一遍是有意的:后端保证落盘/备份干净,
+// server/crates/storage-host/src/html.rs — 两边各洗一遍是有意的:后端保证落盘/备份干净,
 // 这里保证渲染安全。改一边就必须改另一边,否则总有一侧被悄悄放宽。
 const DESCRIPTION_ALLOWED_TAGS = new Set([
     'A', 'B', 'STRONG', 'EM', 'I', 'BR', 'P', 'DIV', 'SPAN', 'UL', 'OL', 'LI',
