@@ -1,0 +1,43 @@
+# HTTP surface: the storage host server, media serving with HMAC-signed URLs,
+# CORS/auth/redaction, and the two binaries that replace
+# `host-server-start.mjs` and the `host.mjs` CLI.
+[package]
+name = "monochrome-storage-http"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+publish.workspace = true
+description = "HTTP storage host for Monochrome (Rust port)"
+
+[lib]
+name = "storage_http"
+path = "src/lib.rs"
+
+[[bin]]
+name = "monochrome-storage-host"
+path = "src/bin/monochrome-storage-host.rs"
+
+[[bin]]
+name = "storage-lab-cli"
+path = "src/bin/storage-lab-cli.rs"
+
+[dependencies]
+monochrome-storage-core = { path = "../storage-core" }
+monochrome-storage-host = { path = "../storage-host" }
+serde_json.workspace = true
+sha2.workspace = true
+hmac.workspace = true
+subtle.workspace = true
+uuid.workspace = true
+chrono.workspace = true
+rusqlite.workspace = true
+tokio.workspace = true
+tokio-util.workspace = true
+bytes.workspace = true
+http.workspace = true
+http-body.workspace = true
+http-body-util.workspace = true
+hyper.workspace = true
+hyper-util.workspace = true
+futures-util.workspace = true

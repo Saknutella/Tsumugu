@@ -1,0 +1,63 @@
+# 文件库后端（Rust 实现）。
+#
+# 三层，各自职责单向依赖：
+#   storage-core  存储基础：schema、路径、文件系统、哈希、快照
+#   storage-host  领域逻辑：work / entry / asset、扫描、入库、封面、备份
+#   storage-http  HTTP 层：路由、鉴权、媒体读取，以及 monochrome-storage-host 可执行文件
+#
+# 构建：cargo build --release -p monochrome-storage-http --bin monochrome-storage-host
+# 产物：server/target/release/monochrome-storage-host(.exe)
+#
+# 依赖全部锁定在 Cargo.lock 里，构建可复现。首次构建需要联网（crates.io）。
+[workspace]
+resolver = "2"
+members = ["crates/storage-core", "crates/storage-host", "crates/storage-http"]
+
+[workspace.package]
+version = "0.1.0"
+edition = "2021"
+rust-version = "1.89"
+license = "Apache-2.0"
+publish = false
+
+[workspace.dependencies]
+# `preserve_order` keeps JSON object keys in insertion order, like Node's
+# JSON.stringify. The sidecar files (.monochrome/*.json) are user-visible and
+# diffed by the differential harness, so key order is part of the output shape.
+serde_json = { version = "1.0.154", features = ["preserve_order"] }
+sha2 = "0.10.9"
+sha1 = "0.10.7"
+hmac = "0.12.1"
+subtle = "2.6.1"
+uuid = { version = "1.29.2", features = ["v4"] }
+chrono = { version = "0.4.45", default-features = false, features = ["clock", "std"] }
+# "backup" enables SQLite's online backup API (sqlite3_backup_*), which the
+# backup module uses to take a consistent DB snapshot instead of copying a live
+# DB+WAL pair. The feature pulls in no extra crates (it is a pure cfg gate over
+# libsqlite3-sys symbols already present in the bundled build), so it builds
+# offline from the toolchain cache.
+rusqlite = { version = "0.32.1", features = ["bundled", "backup"] }
+tokio = { version = "1.54.1", features = ["rt-multi-thread", "net", "fs", "io-util", "macros", "sync", "time", "process", "signal"] }
+tokio-util = { version = "0.7.20", features = ["io"] }
+bytes = "1.12.1"
+http = "1.5.0"
+http-body = "1.1.0"
+http-body-util = "0.1.5"
+hyper = { version = "1.12.0", features = ["http1", "server"] }
+hyper-util = { version = "0.1.21", features = ["tokio"] }
+futures-util = "0.3.34"
+unicode-normalization = "0.1.26"
+# Body sanitizing for creation posts. Its tree builder is the same html5ever
+# Chromium descended from, so "what the browser sees" matches; a hand-written
+# regex sanitizer would let through markup the browser still parses.
+html5ever = "0.39"
+markup5ever = "0.39"
+markup5ever_rcdom = "0.39.0+unofficial"
+# WHATWG URL parsing, same rules as Node `new URL().href` (legacy media refs).
+# Already in the lock via reqwest, so it adds no new crate.
+url = "2.5.8"
+# Outbound HTTP (cover images, resumable downloads). `rustls-no-provider` +
+# rustls' `ring` provider avoids aws-lc-sys, which needs CMake/NASM on
+# Windows and complicates cross-compiling; ring builds everywhere with cc.
+reqwest = { version = "0.13.5", default-features = false, features = ["rustls-no-provider", "blocking"] }
+rustls = { version = "0.23.46", default-features = false, features = ["ring", "std", "tls12"] }

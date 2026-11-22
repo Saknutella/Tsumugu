@@ -76,6 +76,21 @@ export default defineConfig(({ mode }) => {
             include: ['workbox-window', '@sentry/browser', '@capacitor/haptics', 'fuse.js'],
         },
         server: {
+            // Dev bridge to the bundled file-library host (`scripts/dev-web.mjs`).
+            // `connectWebBackend()` already probes `/storage` as a candidate, so a
+            // same-origin proxy is enough — and unlike a `?storage=` query string it
+            // survives a page reload, which HMR does constantly.
+            ...(process.env.MONOCHROME_DEV_STORAGE_TARGET
+                ? {
+                      proxy: {
+                          '/storage': {
+                              target: process.env.MONOCHROME_DEV_STORAGE_TARGET,
+                              changeOrigin: true,
+                              rewrite: (p: string) => p.replace(/^\/storage/, ''),
+                          },
+                      },
+                  }
+                : {}),
             fs: {
                 allow: ['.', 'node_modules'],
                 // host: true,

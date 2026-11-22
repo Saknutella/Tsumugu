@@ -97,7 +97,10 @@ Docker、Tauri 这些本机无法完全证明的结论)。
 [docs/16-voice-storage-download-metadata.md](docs/16-voice-storage-download-metadata.md)。最低限度：
 
 - Kikoeru / asmr.one 是在线音源，storage host 是本地文件库，两者不能混配置；
-- 元数据/评分优先 Kikoeru（2.5s 有界）；Kikoeru 超时、缺失或字段为空才 fallback DLsite；手动值最高。
+- **元数据/评分以 DLsite 为准**：原版由 `translation_info.original_workno` 定；同一音声的多个
+  RJ 里，**编号最小的那个 RJ 元数据最准确**（社团、评分、CV、价格都以它为准）。
+  Kikoeru / asmr.one 只补 DLsite 为空的字段（CV、tag、文件树），不抢社团与评分；手动值最高。
+  例外：RJ01506849 实测中最小号曾不等于原版，那种情况以 DLsite 的 `original_workno` 为准。
 - 远程元数据必须写回 host（`user_title/circle/cv_json/user_meta_json`），手动值带 `manual=true`；
 - 下载只有一个入口 `startVoiceDownload(..., destination)`，禁止新增第二套“保存到文件库”；
 - 派生 tag 必须同时实现卡片 chip、filter facet、URL 参数；`--tag-accent` 与 `--filter-accent` 同源；

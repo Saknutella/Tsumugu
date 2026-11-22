@@ -1,0 +1,7 @@
+# Cargo build output. Builds normally use an external CARGO_TARGET_DIR; this
+# guards an in-place `cargo build` from being committed.
+/target/
+
+# The project root ignores `bin/` (build output). Cargo keeps binary *sources*
+# in `src/bin/`, which must be committed.
+!crates/*/src/bin/

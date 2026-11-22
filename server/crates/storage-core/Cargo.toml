@@ -1,0 +1,44 @@
+# Core storage layer: SQLite schema/migrations, path confinement, atomic file
+# primitives, the exclusive root lease, snapshots and the Library API.
+#
+# This crate must stay free of HTTP concerns: the Node equivalent (library.mjs and
+# its helpers) has no knowledge of host-server.mjs either, and keeping that split
+# is what lets the CLI and the HTTP host share one implementation.
+[package]
+name = "monochrome-storage-core"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+publish.workspace = true
+description = "SQLite/file storage core for the Monochrome storage host"
+
+[lib]
+name = "storage_core"
+path = "src/lib.rs"
+
+[dependencies]
+serde_json.workspace = true
+sha2.workspace = true
+uuid.workspace = true
+chrono.workspace = true
+rusqlite.workspace = true
+unicode-normalization.workspace = true
+url.workspace = true
+
+[target.'cfg(unix)'.dependencies]
+# kill(pid, 0) / getppid for the .lock fallback (Node: process.kill / process.ppid).
+libc = "0.2.191"
+
+[target.'cfg(windows)'.dependencies]
+# Named-pipe lease: the OS exclusivity replaces the .lock check-then-create race.
+# `Win32_Security` is required by windows-sys to expose CreateNamedPipeW (its
+# signature takes SECURITY_ATTRIBUTES), even though we pass a null pointer.
+windows-sys = { version = "0.61.2", features = [
+    "Win32_Foundation",
+    "Win32_Security",
+    "Win32_Storage_FileSystem",
+    "Win32_System_IO",
+    "Win32_System_Pipes",
+    "Win32_System_Threading",
+] }

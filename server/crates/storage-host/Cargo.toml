@@ -1,0 +1,33 @@
+# Host orchestration: scanning, ingest, covers, sidecars, backup/restore,
+# export, resumable download and legacy migration, plus the `host.mjs` adapter
+# surface. Depends on the core crate only; no HTTP types here.
+[package]
+name = "monochrome-storage-host"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+publish.workspace = true
+description = "Host adapter and import pipeline for the Monochrome storage host"
+
+[lib]
+name = "storage_host"
+path = "src/lib.rs"
+
+[dependencies]
+monochrome-storage-core = { path = "../storage-core" }
+serde_json.workspace = true
+sha1.workspace = true
+sha2.workspace = true
+uuid.workspace = true
+chrono.workspace = true
+rusqlite.workspace = true
+unicode-normalization.workspace = true
+reqwest.workspace = true
+# `url::Host` for the public-address check in `net::public_target`; the same
+# crate reqwest already re-exports as `reqwest::Url`, so no new crate is added.
+url.workspace = true
+rustls.workspace = true
+html5ever.workspace = true
+markup5ever.workspace = true
+markup5ever_rcdom.workspace = true

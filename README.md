@@ -106,6 +106,59 @@ For alternative instances, check [INSTANCES.md](INSTANCES.md).
 
 ---
 
+## 文件库后端（本地音声库 · Rust 实现）
+
+在线浏览不需要后端。但「保存到文件库」需要一个本地 host：它持有 SQLite 索引和
+内容寻址存储（CAS），把音声文件真正落到你自己的磁盘上。
+
+本仓库**自带**这个 host 的源码，在 `server/` 下（Rust workspace，三个 crate）。
+
+**要求**：
+
+- Node.js 20+（前端构建）
+- Rust 1.89+（构建后端；首次构建需联网拉 crates.io 依赖）
+
+```bash
+npm install
+npm run build:server    # cargo build --release，产物在 server/target/release/
+npm run dev:web         # 后端 + 前端
+
+npm run server          # 只起后端（需先 build:server）
+```
+
+启动后终端会打印：
+
+```
+  file library host (rust)
+  app      http://localhost:5173/
+  host     http://127.0.0.1:5174  (auth: bearer)
+  proxied  /storage → http://127.0.0.1:5174
+  data     <repo>/data/storage
+  library  <repo>/data/library
+```
+
+`data/` 是你的库：`storage/library.sqlite`（索引，schema v8）+ `library/`（音声文件本体），
+已在 `.gitignore` 里。**备份就备份这个目录。**
+
+可用参数：
+
+| 参数 | 默认 | 说明 |
+| --- | --- | --- |
+| `--data <dir>` | `<repo>/data` | 数据目录（含 `storage/` 与 `library/`） |
+| `--port <n>` | 5173 | 前端端口 |
+| `--host-port <n>` | 5174 | 后端端口 |
+| `--server-only` | — | 只起后端 |
+| `--bin <path>` | `server/target/release/…` | 指定已编译的可执行文件 |
+| `--no-token` | — | 不签发访问令牌（仅调试用） |
+
+接自己的部署时，前端按 `VITE_STORAGE_URL` → `?storage=` → 同源 `/storage` 的顺序找后端，
+所以放在反向代理后面只需要把 `/storage/*` 转发到 host 并去掉前缀。
+
+> **与 Node 版的区别**：Rust host 使用 schema v8，Node 版是 v7。**两者的 `data/` 目录不能互换**，
+> 直接指过去会报 `database schema 8 is newer than supported 7`。迁移需要走正式迁移流程。
+
+---
+
 ## Self-Hosting
 
 NOTE: Accounts will not work on self-hosted instances. Our Appwrite authentication system only allows authorized domains.
