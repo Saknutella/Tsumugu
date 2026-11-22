@@ -139,11 +139,16 @@ export async function fetchKikoeruText(url, { signal } = {}) {
     return response.text();
 }
 
-/** DLsite HTML:Tauri 走代理/native,开发 Web 走同源 7897 代理。 */
+/** DLsite HTML:Tauri 直接取,开发 Web 走同源 7897 代理。 */
 export async function fetchDlsiteHtml(url) {
+    // 桌面壳带着 `--disable-web-security` 启动(main.rs 的 WEBVIEW2_BROWSER_ARGS),
+    // 直接 fetch 不受同源限制;这里曾经无条件 throw,结果是**桌面版里 DLsite 整条链路
+    // 都是死的**——社团/评分/价格/发售日全部为空,而调用方都把异常当"没抓到"吞掉。
+    // 开发模式仍然走同源代理,因为浏览器里有 CORS。
     if (isTauriRuntime()) {
-        // 原生 DLSite 代理设置待办;不要调用不存在的命令。
-        throw new Error('DLSite fallback requires the dev proxy or the Tauri proxy setting');
+        const response = await fetch(url, { headers: { Accept: 'text/html' } });
+        if (!response.ok) throw new Error(`HTTP ${response.status}`);
+        return response.text();
     }
     if (['localhost', '127.0.0.1'].includes(window.location.hostname)) {
         const response = await fetch(`/__dlsite_fetch?url=${encodeURIComponent(url)}`);

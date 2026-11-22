@@ -10,6 +10,7 @@ import { getVoiceDownloadSettings } from './voice-settings.js';
 import { Player } from './player.js';
 import { mergeVoiceMetadata } from './voice-metadata.js';
 import { pruneVoiceDownloadHashes } from './voice-local-state.js';
+import { voicePublishedCircle, voiceTranslatorList } from './voice-circle.js';
 
 const invoke = window.__TAURI_INTERNALS__?.invoke;
 const nativeFetch = window.__monochromeDemoNativeFetch || window.fetch.bind(window);
@@ -103,6 +104,13 @@ async function api(path, body) {
 
 async function startHost(source) {
     if (state.mode === 'web') return { url: state.url, token: state.token };
+    // In a browser there is no Tauri runtime, so `invoke` is undefined and calling it
+    // throws "invoke is not a function" — which says nothing about the real problem.
+    // That message only ever appears when `connectWebBackend()` failed (dev host not
+    // running, wrong port), so name that instead of blaming Tauri.
+    if (typeof invoke !== 'function') {
+        throw new Error('文件库后端未连接（dev 代理 /storage 无法访问 storage host），请确认 host 正在运行');
+    }
     state.mode = 'tauri';
     const startup = await invoke('start_storage', { source: source || null });
     state.url = startup.url;
@@ -355,6 +363,24 @@ function manifestEntries(work) {
     return entries.filter((entry) => entry && entry.logicalPath);
 }
 
+/**
+ * Canonical source RJ of a work (docs/16 §2.3, §16.3).
+ *
+ * A translated edition is its own work/files, but the code shown on the card, the
+ * cover badge and the grouping key must be the Japanese original's RJ. The
+ * edition list already records which one is `isOriginal` (Kikoeru's
+ * `translation_info.original_workno` / the `jpn` row), so we derive from it
+ * instead of trusting whichever code a folder or DLsite page happens to carry:
+ * DLsite's translation pages report a *sibling* translation as `sourceCode`
+ * (RJ01506849 → RJ01506848), never the Japanese original.
+ */
+function sourceCodeFromEditions(editions) {
+    const list = Array.isArray(editions) ? editions : [];
+    const explicit = list.find((edition) => edition?.isOriginal)?.code;
+    const japanese = list.find((edition) => String(edition?.lang || '').toLowerCase() === 'jpn')?.code;
+    return String(explicit || japanese || '').toUpperCase();
+}
+
 function buildTracksFromManifest(work, hostUrl, manifestOverride = null) {
     const root = [];
     const folders = new Map();
@@ -507,6 +533,12 @@ async function persistRemoteMetadata(work, remote) {
     const patch = {
         title: remote.title || work.userTitle || work.title,
         circle: remote.trueCircle || remote.circle || ((remote.translators || []).length ? '' : work.circle || ''),
+        // Persist the identity behind the display circle: `circle` alone loses
+        // the original circle of a translated edition (asmr.one puts the
+        // translator there), and every later metadata fetch would have to
+        // re-derive it from the network.
+        trueCircle: remote.trueCircle || meta.trueCircle || '',
+        translators: voiceTranslatorList(remote).length ? voiceTranslatorList(remote) : voiceTranslatorList(meta),
         // A DLsite-only fallback has no CV/tags. Never let that partial fetch
         // erase the richer Kikoeru data already persisted in the host.
         cvs: remoteCvs.length ? remoteCvs : localCvs,
@@ -530,6 +562,8 @@ async function persistRemoteMetadata(work, remote) {
     const same =
         String(work.userTitle || work.title || '') === String(patch.title || '') &&
         String(work.circle || '') === patch.circle &&
+        String(meta.trueCircle || '') === patch.trueCircle &&
+        JSON.stringify(meta.translators || []) === JSON.stringify(patch.translators) &&
         JSON.stringify(work.cvs || []) === JSON.stringify(patch.cvs) &&
         JSON.stringify(meta.tags || []) === JSON.stringify(patch.tags) &&
         Number(meta.rating || 0) === patch.rating &&
@@ -551,9 +585,20 @@ async function persistRemoteMetadata(work, remote) {
 function toVoiceWork(work, hostUrl, remote = null) {
     const localCode = work.source?.sourceCode || work.workId;
     const userMeta = work.userMeta && typeof work.userMeta === 'object' ? work.userMeta : {};
-    const sourceCode = userMeta.sourceCode || remote?.sourceCode || remote?.code || localCode;
+    // Rule (docs/16 §16.3): the displayed/grouping RJ is always the Japanese
+    // source work, never the edition a folder happens to be named after. A folder
+    // imported as `[RJ01506849] ... 简体中文版` carries that code as its identity,
+    // but `editionCodes` already knows RJ01497456 is `isOriginal`; using the
+    // folder code made the card show the translation number and split one work
+    // into two cards.
+    const editionCandidates = [...(userMeta.editionCodes || remote?.editionCodes || [])];
+    const sourceCode = sourceCodeFromEditions(editionCandidates)
+        || userMeta.sourceCode
+        || remote?.sourceCode
+        || remote?.code
+        || localCode;
     const editionCode = localCode;
-    const editionCodes = [...(userMeta.editionCodes || remote?.editionCodes || [])];
+    const editionCodes = editionCandidates;
     if (editionCode && !editionCodes.some((edition) => String(edition.code || '').toUpperCase() === String(editionCode).toUpperCase())) {
         editionCodes.push({ code: editionCode, lang: userMeta.editionLang || remote?.editionLang || '', label: userMeta.editionLabel || remote?.editionLabel || '', isOriginal: false });
     }
@@ -567,7 +612,11 @@ function toVoiceWork(work, hostUrl, remote = null) {
     const tags = [...new Set(userMeta.tags?.length ? userMeta.tags : remote?.tags || [])];
     const created = work.createdAt || new Date().toISOString();
     const localCover = work.coverMediaPath ? mediaUrl(hostUrl, work.coverMediaPath) : undefined;
-    const cover = remote?.cover || localCover;
+    // The cover on disk wins over a remote URL. The remote one is a DLsite CDN
+    // link that hotlink protection can refuse at any time, and the record in the
+    // library is exactly the copy the user already has — preferring the network
+    // left the album header blank whenever that request failed.
+    const cover = localCover || remote?.cover;
     // The host's `entries` are the files that are actually on disk in the user's
     // folder, so they are authoritative when no sidecar manifest has been written
     // yet (a fresh folder upload, or any host that only indexes files). Without
@@ -598,7 +647,10 @@ function toVoiceWork(work, hostUrl, remote = null) {
         sourceCode,
         title: localizedTitle || work.userTitle || remote?.title || work.title,
         circle: work.circle || remote?.circle || '本地文件',
-        trueCircle: remote?.trueCircle || remote?.circle || work.circle || '本地文件',
+        // `circle` may carry the translator of a translated edition (asmr.one),
+        // so the original circle must come from trueCircle only. Falling back to
+        // `work.circle` here is what put 漁貓 in the circle facet.
+        trueCircle: work.trueCircle || userMeta.trueCircle || '',
         artists,
         tags,
         rating: Number(userMeta.rating) || Number(remote?.rating) || 0,
@@ -619,7 +671,7 @@ function toVoiceWork(work, hostUrl, remote = null) {
         editionLang: localizedLang || userMeta.editionLang || remote?.editionLang || '',
         editionLabel: userMeta.editionLabel || remote?.editionLabel || '',
         editionCodes,
-        translators: userMeta.translators || remote?.translators || [],
+        translators: Array.isArray(userMeta.translators) ? userMeta.translators : [],
         has_subtitle: Boolean(remote?.hasSubtitle || hasLocalSubtitle),
         hasSubtitle: Boolean(remote?.hasSubtitle || hasLocalSubtitle),
         cover,
@@ -628,7 +680,17 @@ function toVoiceWork(work, hostUrl, remote = null) {
         fileStorage: true,
         // Host keeps a tombstone for files removed from the library so the card
         // can stay partial instead of reverting to a misleading full badge.
-        localFileStorageState: manifestLocalState !== undefined ? manifestLocalState : (userMeta.partial ? 'partial' : undefined),
+        // `userMeta.partial` wins over the manifest: importVoicePlan writes it
+        // when it could not enumerate the online tree, and in that case an
+        // all-local manifest would otherwise look "complete" and hide the
+        // missing remote tracks.
+        localFileStorageState: userMeta.partial
+            ? 'partial'
+            : manifestLocalState !== undefined ? manifestLocalState : undefined,
+        // Whether the manifest came from the sidecar / user_meta rather than
+        // being guessed from the host entries. voices.js needs this to tell a
+        // verified work from one whose completeness is simply unknown.
+        hasStoredManifest: storedManifest.length > 0,
         manifest,
         // Sidecar manifest entries know the local/alias status but not the
         // signed media path; keep the host entries so an online card can
@@ -636,11 +698,13 @@ function toVoiceWork(work, hostUrl, remote = null) {
         entries: Array.isArray(work.entries) ? work.entries : [],
         storageWorkId: work.workId,
         storageKind: 'host',
-        presentationMode: manifestLocalState === 'full'
-            ? 'local'
-            : manifestLocalState === 'partial' || Number(localManifestCount) > 0
-                ? 'partial'
-                : 'online',
+        presentationMode: userMeta.partial || manifestLocalState === 'partial'
+            ? 'partial'
+            : manifestLocalState === 'full'
+                ? 'local'
+                : Number(localManifestCount) > 0
+                    ? 'partial'
+                    : 'online',
         storageOwner: work.workId,
         hostUrl,
     };
@@ -1087,12 +1151,22 @@ async function hydrateHostMetadataForCandidates(candidates) {
         if (code) codes.add(code);
     }
     if (!codes.size) return 0;
+    // Compare by code *sets*, not one primary code: a translated work keeps the
+    // original RJ in `userMeta.sourceCode` while its root folder is named after
+    // the edition (`RJ01706655` vs `RJ01682626`). Single-value matching skipped
+    // the whole hydration pass for exactly those works, so the cover,
+    // manifest and sidecar were never written.
+    const candidateWork = { editionCodes: [...codes].map((code) => ({ code })) };
     const hostWorks = (await api('/api/works')).result?.works || [];
     let updated = 0;
+    // Works this hydration pass is responsible for. The second pass below must
+    // not touch unrelated works whose folder code was never in `codes`.
+    const workIds = new Set();
     for (const work of hostWorks) {
         const meta = work.userMeta || {};
+        if (!voiceCodesOverlapHost(work, candidateWork)) continue;
         const workCode = workRjCode(work) || String(meta.sourceCode || '').toUpperCase();
-        if (!codes.has(workCode)) continue;
+        workIds.add(work.workId);
         const needsMetadata = !(work.cvs?.length && meta.tags?.length && meta.release);
         const remote = await remoteMetadataFor(work);
         if (needsMetadata && remote && (await persistRemoteMetadata(work, remote))) updated += 1;
@@ -1112,12 +1186,32 @@ async function hydrateHostMetadataForCandidates(candidates) {
             const manifest = manifestFromHostWork(work);
             if (manifest) {
                 await api('/api/works/metadata', { workId: work.workId, metadata: { manifest } }).catch(() => {});
-                await writeVoiceSidecar(work.workId, voiceImportMetadata(work, work.title), manifest);
                 updated += 1;
             }
         }
     }
     if (updated > 0) await refresh({ silent: true });
+    // Second pass: a translated work stored its folder's edition code as
+    // `userMeta.sourceCode` (`[RJ01506849] … 简体中文版`). Docs/16 §2.3 requires the
+    // Japanese source RJ there too, but the edition list only exists after the
+    // first pass wrote it, so this must re-read the host instead of reusing the
+    // snapshot taken above.
+    const afterWrite = (await api('/api/works')).result?.works || [];
+    for (const work of afterWrite) {
+        if (!workIds.has(work.workId)) continue;
+        const meta = work.userMeta || {};
+        // Manual identity wins (docs/16 §7): only corrected values are automatic.
+        if (meta.manual) continue;
+        const canonical = sourceCodeFromEditions(meta.editionCodes);
+        const stored = String(meta.sourceCode || '').toUpperCase();
+        if (!canonical || !stored || canonical === stored) continue;
+        try {
+            await api('/api/works/metadata', { workId: work.workId, metadata: { sourceCode: canonical } });
+            updated += 1;
+        } catch (error) {
+            console.warn('source code correction skipped:', error?.message || error);
+        }
+    }
     return updated;
 }
 
@@ -1390,23 +1484,79 @@ async function openStorageWorkLocation(work) {
     return response.result || null;
 }
 
+// One host work can cover several RJ codes (`editionCodes`), and the code the
+// caller knows may be an edition rather than `source.sourceCode` — the card for
+// RJ01706655 (繁中版) is served by the host row whose sourceCode is RJ01682626
+// (日版). Matching only `hostCode()` therefore failed and the delete reported
+// "no matching record" for a work that was right there. `hostWorkCodeSet` (defined
+// near `voiceCodesOverlapHost`) already collects every code the entry knows.
+
+/**
+ * Map whatever id the caller holds (host UUID, `voice-<RJ>`, or a bare edition
+ * code) to the host work id. Returns null when the library holds nothing for it.
+ */
+function resolveHostWorkId(hostWorks, id) {
+    const value = String(id || '');
+    if (!value) return null;
+    const bare = value.replace(/^voice-/, '').toUpperCase();
+    const match = (hostWorks || []).find((entry) =>
+        entry.workId === value ||
+        entry.workId === bare ||
+        hostWorkCodeSet(entry).has(bare));
+    return match?.workId || null;
+}
+
 async function deleteStorageWorks(workIds) {
-    if (!Array.isArray(workIds) || workIds.length === 0) return 0;
+    if (!Array.isArray(workIds) || workIds.length === 0) return { count: 0, folderLeft: 0, unresolved: [] };
     await ensureHost();
-    const hostIds = workIds.map((id) => {
-        const value = String(id);
-        const known = (globalThis.__monochromeFileStorageWorks || []).find((work) => work.id === value || work.storageWorkId === value.replace(/^voice-/, ''));
-        return known?.storageWorkId || value.replace(/^voice-/, '');
-    });
-    await api('/api/works/delete', { workIds: hostIds });
+    // Resolve against the host's own list instead of guessing `voice-<RJ>` → id.
+    // The old guess produced a bare RJ code for any work whose `storageWorkId`
+    // was missing; the host then answered `ok: false` per work and the caller
+    // treated the 200 as success, so the card vanished from the UI while both the
+    // row and the folder on disk stayed put.
+    const hostWorks = (await api('/api/works')).result?.works || [];
+    const resolved = [];
+    const unresolved = [];
+    for (const id of workIds) {
+        const match = resolveHostWorkId(hostWorks, id);
+        if (!match) {
+            // Report the mismatch instead of returning 0: a work the caller believes
+            // is in the library but that resolves to nothing is a bug, and silence
+            // is what made a failed delete look like a successful one.
+            unresolved.push(String(id));
+            continue;
+        }
+        if (!resolved.includes(match)) resolved.push(match);
+    }
+    if (resolved.length === 0) {
+        return { count: 0, folderLeft: 0, unresolved };
+    }
+    const response = await api('/api/works/delete', { workIds: resolved });
+    const entries = response.result?.works || [];
+    const failures = entries.filter((entry) => entry.ok !== true);
+    if (failures.length > 0) {
+        const first = failures[0];
+        throw new Error(`host delete failed: ${first?.error || first?.code || 'unknown'}`);
+    }
+    // The row is gone, but the readable folder can survive a locked file. Report it
+    // instead of pretending the delete was complete: an empty folder holding only
+    // `.monochrome` is what the user then sees in their library.
+    const folderLeft = entries.filter((entry) => entry.deleted === true && entry.folderRemoved === false).length;
     await refresh();
-    return hostIds.length;
+    return { count: resolved.length, folderLeft, unresolved };
 }
 
 async function deleteStorageFiles(workId, paths) {
     if (!workId || !Array.isArray(paths) || paths.length === 0) return { deleted: [], count: 0 };
     await ensureHost();
-    const response = await api('/api/works/delete-files', { workId, paths });
+    // Resolve here rather than trusting the caller's id. The album hands us an online
+    // record (`voice-RJ01706655`) while the host row is keyed by UUID and carries that
+    // code only in `editionCodes`; sending the raw value made the host answer
+    // "entry not found" for a file that was right there.
+    const hostWorks = (await api('/api/works')).result?.works || [];
+    const resolved = resolveHostWorkId(hostWorks, workId);
+    if (!resolved) return { deleted: [], count: 0, unresolved: String(workId) };
+    const response = await api('/api/works/delete-files', { workId: resolved, paths });
     await refresh();
     return response.result || { deleted: [], count: 0 };
 }
@@ -1415,11 +1565,8 @@ export async function updateStorageWorkMetadata(workId, metadata) {
     await ensureHost();
     const id = String(workId || '').replace(/^voice-/, '');
     const response = await api('/api/works/metadata', { workId: id, metadata });
-    // Metadata editor is part of the per-work JSON system: keep the sidecar
-    // metadata.json in sync with SQLite, not just the UI snapshot.
-    await api('/api/voices/sidecar', { workId: id, metadata, manifest: null }).catch((error) => {
-        console.warn('voice metadata sidecar sync skipped:', error?.message || error);
-    });
+    // One write path only: `/api/works/metadata` is the database. There is no
+    // `.monochrome/metadata.json` to keep in sync any more.
     await refresh({ silent: true });
     return response.result || null;
 }
@@ -1510,6 +1657,11 @@ window.__monochromeFileStorage = {
     deleteWorks: deleteStorageWorks,
     deleteFiles: deleteStorageFiles,
     openLocation: openStorageWorkLocation,
+    // Shape adapters, exposed for the browser probes: they are pure functions of
+    // the host work, so a probe can assert the metadata the card and the sidecar
+    // would see without opening a specific album.
+    toVoiceWork,
+    voiceImportMetadata,
     creation: {
         savePost: saveCreationPost,
         listPosts: listCreationPosts,
@@ -1643,7 +1795,13 @@ async function uploadRemoteChunks(url, relative, mime, onChunk, signal) {
 function voiceImportMetadata(work, prefix) {
     return {
         title: work?.title || prefix,
-        circle: work?.trueCircle || work?.circle || '',
+        // Same rule as persistRemoteMetadata: trueCircle is the original circle;
+        // with translators present but no trueCircle the `circle` field cannot be
+        // trusted (asmr.one stores the translator there), so publish nothing
+        // rather than writing 漁貓 into the sidecar as a circle.
+        circle: voicePublishedCircle(work),
+        trueCircle: work?.trueCircle || '',
+        translators: Array.isArray(work?.translators) ? work.translators : [],
         cvs: Array.isArray(work?.artists) && work.artists.length ? work.artists : Array.isArray(work?.cvs) ? work.cvs : [],
         sourceCode: work?.sourceCode || work?.code || '',
         tags: Array.isArray(work?.tags) ? work.tags : [],
@@ -1662,7 +1820,7 @@ function voiceImportMetadata(work, prefix) {
     };
 }
 
-function mergeVoiceManifestEntries(existing, incoming, editionCode) {
+function mergeVoiceManifestEntries(existing, incoming, editionCode, presentPaths = null) {
     const entries = [];
     const byKey = new Map();
     const add = (entry, forcedEdition = '') => {
@@ -1677,8 +1835,18 @@ function mergeVoiceManifestEntries(existing, incoming, editionCode) {
             return;
         }
         const merged = { ...current, ...entry, ...(edition ? { editionCode: edition } : {}) };
-        // A path that is physically present again becomes canonical, not an alias.
-        if (entry.status === 'local') delete merged.aliasOf;
+        if (current.aliasOf) {
+            // `incoming` marks a row local from the download journal, not from
+            // disk. The host's dynamic dedupe already removed this duplicate and
+            // recorded the alias + real sha256; only a file that is physically
+            // back at this path may turn the alias into a canonical copy again.
+            if (presentPaths?.has(entry.logicalPath)) {
+                delete merged.aliasOf;
+            } else {
+                merged.aliasOf = current.aliasOf;
+                merged.hash = current.hash;
+            }
+        }
         byKey.set(key, merged);
         const index = entries.indexOf(current);
         if (index >= 0) entries[index] = merged;
@@ -1741,16 +1909,6 @@ async function reconcileVoiceWork(workId) {
     return response.result || null;
 }
 
-async function writeVoiceSidecar(workId, metadata, manifest) {
-    if (!workId) return null;
-    try {
-        const response = await api('/api/voices/sidecar', { workId, metadata, manifest });
-        return response.result || null;
-    } catch {
-        return null;
-    }
-}
-
 async function saveVoiceBundle(work) {
     await ensureHost();
     if (!state.url || !work?.id) return null;
@@ -1803,7 +1961,11 @@ export async function importVoicePlan(plan, work, { onProgress, signal } = {}) {
         || hostCandidates[0] || null;
     // If the same work exists under another edition code, download into that
     // existing root and merge editions; never create a second work folder.
-    const prefix = existing?.workRoot || existing?.title || plan.rootName || code || 'voice';
+    // Only a real `workRoot` is trusted from the existing record — `title` is a bare
+    // folder name with no `[RJ]` prefix, and falling back to it created a second
+    // directory beside the canonical one. Everything else uses the same builder the
+    // bundle migration uses, so both paths always agree.
+    const prefix = existing?.workRoot || voiceBundleRootName(work) || plan.rootName || code || 'voice';
     const existingBySuffix = new Map();
     for (const entry of existing?.entries || []) {
         const logical = String(entry.logicalPath || '');
@@ -1951,28 +2113,41 @@ export async function importVoicePlan(plan, work, { onProgress, signal } = {}) {
             if (entry.entryId) localHashes.add(String(entry.entryId));
             if (entry.logicalPath) localPaths.add(String(entry.logicalPath));
         }
-        const manifest = mergeVoiceManifestEntries(
-            metadataTarget.userMeta?.manifest,
-            buildVoiceManifest(work, localHashes, localPaths),
-            code,
-        );
+        const builtManifest = buildVoiceManifest(work, localHashes, localPaths);
+        const storedManifest = metadataTarget.userMeta?.manifest;
+        const mergedManifest = mergeVoiceManifestEntries(storedManifest, builtManifest, code, localPaths);
+        // `buildVoiceManifest` returns null when the online tree never loaded
+        // (work.tracks empty), and an existing manifest may be missing too. The
+        // host entries are then the only enumeration we have: a manifest built
+        // from them still lets the sidecar, `user_meta.manifest` and the
+        // full/partial badge exist. An empty manifest beats no manifest at all:
+        // without it the frontend treats the host work as complete and masks the
+        // online track tree.
+        const manifest = mergedManifest
+            || manifestFromHostWork(metadataTarget)
+            || { version: 1, generatedAt: new Date().toISOString(), entries: [] };
         const metadata = voiceImportMetadata(work, prefix);
         metadata.editionCodes = mergeEditionCodeLists(
             metadataTarget.userMeta?.editionCodes,
             metadata.editionCodes,
         );
+        // When we could not enumerate the online tree, the manifest only knows
+        // local files. Persist that fact so the work stays "partial" after a
+        // restart instead of looking complete and hiding the remote tracks; a
+        // later import with a known tree clears it again.
+        metadata.partial = !builtManifest;
         await api('/api/works/metadata', {
             workId: metadataTarget.workId,
             metadata: {
                 ...metadata,
-                ...(manifest ? { manifest } : {}),
+                manifest,
             },
         }).catch((error) => {
             console.warn('import metadata reapply skipped:', error?.message || error);
         });
-        if (manifest) {
-            await writeVoiceSidecar(metadataTarget.workId, metadata, manifest);
-        }
+        // Nothing else to persist here: the patch above already carries the
+        // manifest into the database, which is the only authority. There is no
+        // `metadata.json`/`manifest.json` file to keep in sync any more.
         // The manifest reapply above can reintroduce a duplicate local row after
         // importFile's per-file dedupe already ran. Run one final reconcile so
         // same-hash entries become aliases and physical duplicates are removed.

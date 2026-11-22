@@ -59,34 +59,37 @@ export function mergeVoiceMetadata(kikoeru, dlsite) {
         dTranslated && d.circle ? [d.circle] : [],
     );
     return {
-        ...d,
         ...k,
-        title: k.title || d.title,
+        ...d,
+        // DLsite is authoritative wherever it has a value: its product page
+        // states `translation_info.original_workno`, so the identity fields must
+        // come from it. Kikoeru only fills the gaps (tracks, CVs, richer tags).
+        title: d.title || k.title,
         circle,
         trueCircle,
-        artists: uniqueStrings(k.artists, d.artists),
+        artists: uniqueStrings(d.artists, k.artists),
         tags: uniqueStrings(k.tags, d.tags),
-        rating: Number(k.rating) || Number(d.rating) || 0,
-        ratingCount: Number(k.ratingCount) || Number(d.ratingCount) || 0,
+        rating: Number(d.rating) || Number(k.rating) || 0,
+        ratingCount: Number(d.ratingCount) || Number(k.ratingCount) || 0,
         reviewCount: Number(k.reviewCount) || Number(d.reviewCount) || 0,
         soldCount: Number(k.soldCount) || Number(d.soldCount) || 0,
-        price: Number(k.price) || Number(d.price) || 0,
-        currency: k.currency || d.currency || 'JPY',
-        release: k.release || d.release || '',
-        ageCategory: kikoeruAge || dlsiteAge || k.ageCategory || d.ageCategory || 'unrated',
-        nsfw: Boolean(k.nsfw || d.nsfw),
-        sourceCode: k.sourceCode || d.sourceCode || '',
-        sourceUrl: k.sourceUrl || d.sourceUrl || '',
-        pageUrl: k.pageUrl || d.pageUrl || '',
-        editionLang: k.editionLang || d.editionLang || '',
-        editionLabel: k.editionLabel || d.editionLabel || '',
-        editionCodes: uniqueEditions(k.editionCodes, d.editionCodes),
+        price: Number(d.price) || Number(k.price) || 0,
+        currency: d.currency || k.currency || 'JPY',
+        release: d.release || k.release || '',
+        ageCategory: dlsiteAge || kikoeruAge || d.ageCategory || k.ageCategory || 'unrated',
+        nsfw: Boolean(d.nsfw || k.nsfw),
+        sourceCode: d.sourceCode || k.sourceCode || '',
+        sourceUrl: d.sourceUrl || k.sourceUrl || '',
+        pageUrl: d.pageUrl || k.pageUrl || '',
+        editionLang: d.editionLang || k.editionLang || '',
+        editionLabel: d.editionLabel || k.editionLabel || '',
+        editionCodes: uniqueEditions(d.editionCodes, k.editionCodes),
         translators,
         hasSubtitle: Boolean(k.hasSubtitle || d.hasSubtitle),
-        // Cover follows the same source priority: Kikoeru first, DLsite og:image
-        // fallback (DLsite's image CDN is the canonical folder.jpg source).
-        cover: k.cover || d.cover || '',
-        thumbnail: k.thumbnail || d.thumbnail || k.cover || d.cover || '',
+        // Cover: DLsite's image CDN is the canonical folder.jpg source; Kikoeru's
+        // thumbnail is the fallback when the product page had no og:image.
+        cover: d.cover || k.cover || '',
+        thumbnail: d.thumbnail || k.thumbnail || d.cover || k.cover || '',
         duration: Number(k.duration) || Number(d.duration) || 0,
     };
 }

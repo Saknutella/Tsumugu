@@ -15,6 +15,7 @@ import { showNotification } from './downloads.js';
 import { fetchKikoeruWork, fetchKikoeruWorkById } from './kikoeru-api.js';
 import { fetchDlsiteWorkMetadata } from './dlsite-metadata.js';
 import { mergeVoiceMetadata } from './voice-metadata.js';
+import { voiceDisplayCircle, voiceTranslatorList } from './voice-circle.js';
 import { createImportOptions } from './import-options.js';
 import { setUiState } from './ui-state.js';
 import { backgroundSettings } from './storage.js';
@@ -75,6 +76,11 @@ function updateVoiceFavoriteButton(button, favorite) {
 let works = [];
 let currentWorkId = null;
 let currentVoiceAlbum = null;
+// Which folders the user has open, per work. Re-rendering the tracklist (every
+// host refresh, every download) used to derive the expansion from the configured
+// initial path, so any opened folder collapsed under the user. Recording the DOM
+// state here lets the next render restore exactly what was open.
+const voiceAlbumOpenFolders = new Map();
 let importOptions = null;
 const activeArtists = new Set();
 const activeCircles = new Set();
@@ -369,6 +375,85 @@ async function hydrateVoiceRatings() {
 }
 
 const VOICE_WORK_JSON_KEY = 'monochrome-voice-work-json-v1';
+// Works the user explicitly deleted from the file library. Persisted because the
+// resurrection happens on the *next* load: the online record survives in
+// localStorage, so the background bundle migration would see "an online work with
+// no host row" and quietly recreate the folder. `voiceHostForWork()` is truthy
+// before the delete, so the identity never entered `onlineBundleAttempted` either.
+const VOICE_DELETED_KEY = 'monochrome-voices-deleted-v1';
+
+function voiceDeletedIdentities() {
+    try {
+        const raw = JSON.parse(localStorage.getItem(VOICE_DELETED_KEY) || '[]');
+        return new Set(Array.isArray(raw) ? raw.filter((value) => typeof value === 'string') : []);
+    } catch {
+        return new Set();
+    }
+}
+
+function writeVoiceDeletedIdentities(identities) {
+    try {
+        localStorage.setItem(VOICE_DELETED_KEY, JSON.stringify([...identities]));
+    } catch {
+        /* private mode/quota: the tombstone is best-effort */
+    }
+}
+
+/**
+ * Every RJ code this record can be identified by.
+ *
+ * Deliberately excludes `workId`: `voiceWorkCodeSet` carries it, but a host record
+ * has one while the online record does not, so any set built from the full helper
+ * would never compare equal across the two.
+ */
+function voiceBundleCodes(work) {
+    const codes = new Set();
+    const candidates = [
+        work?.code,
+        work?.sourceCode,
+        work?.originalCode,
+        work?.source?.sourceCode,
+        work?.userMeta?.sourceCode,
+        ...(Array.isArray(work?.editionCodes) ? work.editionCodes.map((edition) => edition?.code) : []),
+        ...(Array.isArray(work?.userMeta?.editionCodes) ? work.userMeta.editionCodes.map((edition) => edition?.code) : []),
+    ];
+    for (const value of candidates) {
+        const code = String(value || '').toUpperCase().match(/RJ\d{5,8}/)?.[0];
+        if (code) codes.add(code);
+    }
+    return [...codes].sort();
+}
+
+/** Identity used by `ensureOnlineWorkBundles` to decide "already handled". */
+function voiceBundleIdentity(work) {
+    return voiceBundleCodes(work).join('|');
+}
+
+// The tombstone stores individual codes, not one joined identity: a host record can
+// carry more edition codes than the online record does, and comparing the two sets
+// for equality would miss. "Any code overlaps" is the relation that survives that.
+function markVoiceDeleted(work) {
+    const codes = voiceBundleCodes(work);
+    if (!codes.length) return;
+    const identities = voiceDeletedIdentities();
+    for (const code of codes) identities.add(code);
+    writeVoiceDeletedIdentities(identities);
+}
+
+function clearVoiceDeleted(work) {
+    const codes = voiceBundleCodes(work);
+    if (!codes.length) return;
+    const identities = voiceDeletedIdentities();
+    let changed = false;
+    for (const code of codes) {
+        if (identities.delete(code)) changed = true;
+    }
+    if (changed) writeVoiceDeletedIdentities(identities);
+}
+
+function isVoiceDeleted(work, identities) {
+    return voiceBundleCodes(work).some((code) => identities.has(code));
+}
 
 function voiceWorkManifestSnapshot(work) {
     if (Array.isArray(work?.manifest)) return { version: 1, entries: work.manifest };
@@ -458,6 +543,11 @@ function persistWorks() {
                     .filter((work) => !work.fileStorage && !work.browserLocal)
                     .map(({ localFileStorageState, __voicePartial, ...work }) => ({
                         ...work,
+                        // A signed `/media/<id>?expires=…&sig=…` URL dies with the
+                        // TTL; persisting it left the album header blank on the
+                        // next launch. The host re-signs one every session and
+                        // `readWorks` lends it back, so store nothing here.
+                        cover: /\/media\/[^/?#]+/.test(String(work.cover || '')) ? undefined : work.cover,
                         storageKind: 'online',
                         presentationMode: work.presentationMode === 'partial' ? 'online' : (work.presentationMode || 'online'),
                         storageOwner: undefined,
@@ -917,7 +1007,9 @@ function voiceListenLabel(value) {
 
 function voiceCircleValue(work) {
     const group = voiceGroupForWork(work);
-    return group?.trueCircle || work?.trueCircle || work?.circle || '';
+    // A translated edition may carry the translator in `circle`; that is not a
+    // circle and must not show up as a facet value (see js/voice-circle.js).
+    return group?.trueCircle || voiceDisplayCircle(work) || '';
 }
 
 function matchesFilters(work, exclude = '') {
@@ -1004,20 +1096,47 @@ async function deleteVoices(ids, singleTitle = '') {
             ? t(localKey ? 'selection.deleteSingleConfirmLocal' : 'selection.deleteSingleConfirm', { title: singleTitle })
             : t(localKey ? 'selection.deleteSelectedConfirmLocal' : 'selection.deleteSelectedConfirm', { count: ids.length });
     if (!window.confirm(message)) return;
-    if (fileWorks.length > 0) {
-        const bridge = globalThis.__monochromeFileStorage;
-        if (typeof bridge?.deleteWorks !== 'function') {
-            showNotification('文件库删除不可用');
-            return;
-        }
+    // Ask the file library for every selected work, not just the ones flagged
+    // `fileStorage`: the flag lives on the merged work and a plain online entry
+    // for a work that *is* in the library would otherwise be dropped from the UI
+    // while its folder and row stayed behind. The bridge resolves ids against the
+    // host's own list and is a no-op for works it does not own.
+    const bridge = globalThis.__monochromeFileStorage;
+    let folderLeft = 0;
+    let unresolved = [];
+    if (typeof bridge?.deleteWorks === 'function') {
         try {
-            await bridge.deleteWorks(fileWorks.map((work) => work.storageWorkId || work.id));
+            const result = await bridge.deleteWorks(ids.map((id) => {
+                const work = selectedWorks.find((entry) => entry.id === id);
+                return work?.storageWorkId || id;
+            }));
+            folderLeft = Number(result?.folderLeft) || 0;
+            unresolved = Array.isArray(result?.unresolved) ? result.unresolved : [];
         } catch (error) {
             console.error('file storage delete failed', error);
             showNotification(`文件库删除失败: ${error?.message || error}`);
             return;
         }
+    } else if (fileWorks.length > 0) {
+        showNotification('文件库删除不可用');
+        return;
     }
+    if (unresolved.length > 0 && unresolved.length === ids.length) {
+        // Nothing matched a library row: removing the card here would make the work
+        // reappear on the next refresh, which reads as "delete did nothing".
+        console.error('voice delete: no file-library row matched', unresolved);
+        showNotification(`未找到对应的文件库记录（${unresolved.join(', ')}），未删除任何内容`);
+        return;
+    }
+    if (folderLeft > 0) {
+        // The row is gone; only the folder survived a locked file. Saying nothing
+        // left the user staring at a work that still had a folder in the library.
+        showNotification(`已从库中移除，但 ${folderLeft} 个文件夹未能删除（文件被占用），请关闭后重试`);
+    }
+    // Tombstone first: the online record stays in localStorage, so the background
+    // bundle migration would otherwise recreate the folder on the next load and the
+    // work would come back with a cover-only directory.
+    for (const work of selectedWorks) markVoiceDeleted(work);
     works = works.filter((work) => !idSet.has(work.id));
     if (!works.length) voiceImportOpen = null;
     for (const id of ids) {
@@ -1338,7 +1457,7 @@ function voiceAlbumHierarchyHtml(nodes, path = [], counter = { index: 0, folderI
                 const folderPath = [...path, node.title];
                 const folderIndex = counter.folderIndex++;
                 const open = openKeys ? openKeys.has(JSON.stringify(folderPath)) : true;
-                return `<details class="voice-album-folder"${open ? ' open' : ''} style="--voice-depth:${path.length}" data-voice-depth="${path.length}">
+                return `<details class="voice-album-folder"${open ? ' open' : ''} style="--voice-depth:${path.length}" data-voice-depth="${path.length}" data-voice-folder-path="${escapeHtml(JSON.stringify(folderPath))}">
                     <summary class="voice-album-folder-row" data-voice-depth="${path.length}">
                         <label class="voice-folder-selector"><input type="checkbox" class="voice-folder-select voice-native-checkbox" data-voice-select-folder="${folderIndex}" aria-label="${escapeHtml(t('voices.selectFolder', { title: node.title }))}" /></label>
                         <span class="voice-folder-main">
@@ -1499,7 +1618,16 @@ function openVoiceDownloadDestinationMenu(anchor, work, folderPath = [], nodes =
 
 function voiceStorageHostFor(work) {
     if (work?.fileStorage && work.storageWorkId) return work;
-    return voicePartialHostFor(work);
+    const partial = voicePartialHostFor(work);
+    if (partial) return partial;
+    // The album page can hand us the *online* record (no `storageWorkId`), which
+    // made "delete from library" bail out with a notification and do nothing. The
+    // merged list still holds the host slice for the same work, so resolve it the
+    // same way by code overlap.
+    if (!work || work.browserLocal) return null;
+    const match = (works || []).find((entry) =>
+        entry?.fileStorage && entry.storageWorkId && entry.id !== work.id && voiceWorkCodesOverlap(entry, work));
+    return match || null;
 }
 
 function voiceRowNode(work, row) {
@@ -1513,10 +1641,15 @@ function voiceStorageActionLabel(isLocal) {
 async function deleteVoiceLocalFiles(work, paths, anchor = null, hashes = []) {
     const host = voiceStorageHostFor(work);
     const bridge = globalThis.__monochromeFileStorage;
-    if (!host?.storageWorkId || typeof bridge?.deleteFiles !== 'function') {
+    if (typeof bridge?.deleteFiles !== 'function') {
         showNotification(t('voices.deleteFromLibraryFailed'));
         return;
     }
+    // When the merged list has no host slice for this work, still ask the bridge:
+    // it resolves the id against `/api/works` itself. Sending the raw id used to be
+    // a hard failure here, which is why "delete from library" claimed the work was
+    // not in the library while the album was showing files from it.
+    const targetId = host?.storageWorkId || work?.storageWorkId || work?.id || work?.code || '';
     if (!window.confirm(t('voices.deleteFilesConfirm', { count: paths.length }))) return;
     if (anchor) setVoiceDownloadButtonBusy(anchor, true);
     try {
@@ -1528,13 +1661,31 @@ async function deleteVoiceLocalFiles(work, paths, anchor = null, hashes = []) {
                     else if (node.hash && node.logicalPath) byHash.set(String(node.hash), String(node.logicalPath));
                 }
             };
-            walk(host?.tracks);
+            walk(host?.tracks || work?.tracks);
             paths = [...new Set([
                 ...paths,
                 ...hashes.map((hash) => byHash.get(String(hash))).filter(Boolean),
             ])];
         }
-        const result = await bridge.deleteFiles(host.storageWorkId, paths);
+        // An empty list makes `deleteStorageFiles` return {count: 0} without ever
+        // calling the host, which then reads as "no matching entry". Say what
+        // actually happened: the row carried no path.
+        if (!paths.length) {
+            console.error('voice delete: the row carried no logical path', { id: work?.id, hashes });
+            showNotification('从文件库删除失败：该行没有可删除的路径');
+            return;
+        }
+        const result = await bridge.deleteFiles(targetId, paths);
+        if (result?.unresolved) {
+            console.error('voice delete: the library holds no work for this record', {
+                targetId,
+                id: work?.id,
+                code: work?.code,
+                storageWorkId: host?.storageWorkId,
+            });
+            showNotification(`未找到该作品在文件库中的记录（${work?.code || work?.id || '?'}），无法删除文件`);
+            return;
+        }
         clearVoiceDownloadHashes(work.id, hashes);
         const count = Number(result?.count ?? result?.deleted?.length) || 0;
         const aliases = Number(result?.aliases) || 0;
@@ -1570,12 +1721,21 @@ async function deleteVoiceLocalFiles(work, paths, anchor = null, hashes = []) {
         } else if (count > 0) {
             showNotification(t('voices.deletedFromLibrary', { count }));
         } else {
-            showNotification(t('voices.deleteFromLibraryFailed'));
+            // The host answered but deleted nothing. Its `missing` list says why
+            // ("entry not found" = the path is not a row of this work; "invalid
+            // path" = the frontend built something unusable), and that distinction
+            // is the whole diagnosis — collapsing it into "删除失败" is what left
+            // this unreported for two rounds.
+            const missing = Array.isArray(result?.missing) ? result.missing : [];
+            const reason = missing[0]?.reason || 'no matching entry';
+            console.error('voice delete: host deleted nothing', { workId: targetId, paths, missing });
+            showNotification(`从文件库删除失败：${reason}${missing.length > 1 ? ` 等 ${missing.length} 项` : ''}`);
         }
-        window.dispatchEvent(new PopStateEvent('popstate'));
     } catch (error) {
+        // A rejected request (404 work not found, 500, host down) lands here and used
+        // to show the same unexplained message as "matched nothing". Keep the reason.
         console.error('Failed to delete voice files from library:', error);
-        showNotification(t('voices.deleteFromLibraryFailed'));
+        showNotification(`从文件库删除失败：${error?.message || error}`);
     } finally {
         if (anchor) setVoiceDownloadButtonBusy(anchor, false);
     }
@@ -1839,8 +1999,15 @@ function manifestFromOnlineWork(online, host) {
 }
 
 async function hydratePartialOnlineWork(work) {
-    if (!work?.fileStorage || work.localFileStorageState !== 'partial') return;
+    // A host work whose online record is gone (restart, cleared storage) is
+    // exactly the case where the full remote tree gets lost. The old guard only
+    // allowed `partial`, so a work without a manifest looked `full` and never
+    // went back to Kikoeru. Allow any host work with local content here; the
+    // fetch below is still gated on an RJ code, so purely local works never
+    // touch the network.
+    if (!work?.fileStorage) return;
     if (works.some((entry) => !entry.fileStorage && !entry.browserLocal && voiceWorkCodesOverlap(entry, work))) return;
+    if (!voiceHostHasLocalContent(work)) return;
     const key = String(work.id || work.storageWorkId || '');
     if (!key || partialOnlineHydration.has(key)) return;
     partialOnlineHydration.add(key);
@@ -1850,6 +2017,9 @@ async function hydratePartialOnlineWork(work) {
         if (right === primaryCode) return 1;
         return 0;
     });
+    // `voiceWorkCodeSet` only keeps RJ codes; an empty set means a local folder
+    // with nothing to look up, so do not issue a request for it.
+    if (!codes.length) return;
     for (const code of codes) {
         try {
             const online = await fetchKikoeruWork(code, {
@@ -1983,8 +2153,8 @@ async function startVoiceDownload(work, folderPath = [], button = null, selected
     activeVoiceDownload = { controller, plan };
     setVoiceDownloadButtonBusy(button, true);
     if (destination === 'storage') {
-        ensureVoiceDownloadPanel(plan);
         try {
+            ensureVoiceDownloadPanel(plan);
             const bridge = globalThis.__monochromeFileStorage;
             if (typeof bridge?.importVoicePlan !== 'function') throw new Error('storage host is not running');
             const result = await bridge.importVoicePlan(plan, work, {
@@ -1996,8 +2166,9 @@ async function startVoiceDownload(work, folderPath = [], button = null, selected
             await bridge.refresh?.();
             // Re-render the album from refreshed host state so local badges and
             // row menus update immediately instead of waiting for a manual reload.
+            // Do NOT dispatch `popstate` here: that re-runs the whole route and
+            // rebuilds the page, which collapses the folder the user had open.
             refreshVoiceAlbumAfterDownload(work);
-            window.dispatchEvent(new PopStateEvent('popstate'));
             showNotification(t('voices.savedToLibrary', { count: result.uploaded ?? result.total ?? plan.files.length }));
         } catch (error) {
             if (controller.signal.aborted) {
@@ -2358,6 +2529,14 @@ function renderAlbumExtras(work, album = currentVoiceAlbum) {
     albumExtrasController = new AbortController();
     const { signal } = albumExtrasController;
     const page = document.getElementById('page-album');
+    // A stuck `data-voice-download-busy` makes the button pulse forever (1.1 s
+    // infinite CSS animation) even after the job died — the attribute lives on the
+    // element and survives innerHTML rewrites. Nobody is downloading ⇒ clear it.
+    if (!activeVoiceDownload) {
+        for (const element of page?.querySelectorAll('[data-voice-download-busy]') || []) {
+            setVoiceDownloadButtonBusy(element, false);
+        }
+    }
     const info = page?.querySelector('.detail-header-info');
     const tracklist = document.getElementById('album-detail-tracklist');
     if (!page || !info || !tracklist) return;
@@ -2808,7 +2987,9 @@ function renderAlbumExtras(work, album = currentVoiceAlbum) {
         ? new Set([...recordedLocalHashes].filter((hash) => hostHashesForTree.has(hash)))
         : recordedLocalHashes;
     const initialPath = getVoiceInitialPath(work.tracks, { ...voicePathSettings.get(), localFileTree: Boolean(work.fileStorage) });
-    const openKeys = new Set(expandPathPrefixes(initialPath));
+    const openKeys = new Set(
+        voiceAlbumOpenFolders.get(work.id) || expandPathPrefixes(initialPath),
+    );
     tracklist.innerHTML = `<div class="creation-attachment-toolbar voice-selection-toolbar" data-empty="true" data-voice-album-action="selection">
         <label class="voice-select-all-label"><input id="voice-select-all" type="checkbox" class="voice-native-checkbox" />${escapeHtml(t('voices.selectAllFiles'))}</label>
         <span id="voice-selection-count" role="status" aria-live="polite"></span>
@@ -2898,6 +3079,19 @@ function renderAlbumExtras(work, album = currentVoiceAlbum) {
         onDeleteLocal: (paths, button, hashes) => deleteVoiceLocalFiles(work, paths, button, hashes)
     });
     animateVoiceFolders(tracklist, signal);
+    // `toggle` on <details> does not bubble, so record each folder individually.
+    // Only real user toggles end up here (the initial `open` attribute is set in
+    // the markup), which keeps the stored set honest.
+    tracklist.querySelectorAll('details.voice-album-folder').forEach((folder) => {
+        folder.addEventListener('toggle', () => {
+            const path = folder.dataset.voiceFolderPath;
+            if (!path) return;
+            const open = voiceAlbumOpenFolders.get(work.id) || new Set();
+            if (folder.open) open.add(path);
+            else open.delete(path);
+            voiceAlbumOpenFolders.set(work.id, open);
+        }, { signal });
+    });
     tracklist.querySelectorAll('.voice-album-folder-menu').forEach((button) => {
         button.addEventListener('click', (event) => {
             event.preventDefault();
@@ -3722,7 +3916,11 @@ function applyHostDisplayMetadataToOnline(online, host) {
     const genericTitle = !hostTitle || /^untitled local work$/i.test(hostTitle);
     if (!genericTitle) online.title = host.userTitle || hostTitle || online.title;
     online.userTitle = host.userTitle || online.userTitle;
-    online.circle = host.circle || online.circle;
+    // The host `circle` may be the translator of a translated edition. Keep the
+    // online circle in that case: overwriting it made the facet list 漁貓 as a
+    // circle. trueCircle below is the authoritative original circle.
+    const hostCircle = String(host.circle || '');
+    if (hostCircle && !voiceTranslatorList(host).includes(hostCircle)) online.circle = hostCircle;
     if (Array.isArray(host.artists) && host.artists.length) online.artists = host.artists;
     if (Array.isArray(host.tags) && host.tags.length) online.tags = host.tags;
     if (Array.isArray(host.translators) && host.translators.length) online.translators = host.translators;
@@ -3985,14 +4183,20 @@ export function mergeFileStorageWorks(incomingWorks) {
             walk(host.tracks);
             return missing;
         })();
+        // A host work can only be judged "complete" against a loaded online
+        // tree. Without one (no online record, or a record whose tracks were
+        // never hydrated) the old code answered `true` and the host card became
+        // the only record, silently dropping the full remote track tree on the
+        // next startup. Unknown completeness must read as partial.
+        const onlineTreeLoaded = Array.isArray(match?.tracks) && match.tracks.length > 0;
         const hostComplete = host.localFileStorageState === 'partial'
             ? false
-            : match
+            : match && onlineTreeLoaded
                 ? fileNodeCount(host) >= fileNodeCount(match) &&
                   audioNodeCount(host) >= audioNodeCount(match) &&
                   !hostHasMissingRemoteUrls &&
                   (Boolean(host.hasLocalCover) || !match.cover)
-                : true;
+                : false;
 
         if (match && !hostComplete) {
             if (!voiceHostHasLocalContent(host)) {
@@ -4027,6 +4231,15 @@ export function mergeFileStorageWorks(incomingWorks) {
             replacedOnline.add(match);
             visibleHosts.push(mergeVoiceHostMetadata(host, match));
         } else {
+            // No online record to compare against. Only a stored manifest that
+            // declares every entry local proves completeness; anything else is
+            // "unknown", and showing it as a complete local card is what made
+            // the online tree disappear after a restart.
+            const manifestKnown = host.hasStoredManifest && Array.isArray(host.manifest) && host.manifest.length > 0;
+            if (!manifestKnown || host.localFileStorageState !== 'full') {
+                host.localFileStorageState = 'partial';
+                host.presentationMode = 'partial';
+            }
             visibleHosts.push(host);
         }
     }
@@ -4086,6 +4299,13 @@ export function initializeVoiceStreamRefresh() {
 }
 
 let onlineBundleMigrationRunning = false;
+// One attempt per work identity per session. `ensureOnlineWorkBundles` is armed
+// from inside every merge, and a bundle write bumps the host revision, which
+// causes another merge — so a work that can never be matched back to its host row
+// re-armed itself about every 1.2 s forever, and each round tore down and rebuilt
+// the album action row (the visible "flicker"). Attempting once removes the loop
+// while still migrating works that appear later.
+const onlineBundleAttempted = new Set();
 
 /**
  * Online cards should still have a per-work folder/manifest in the file library.
@@ -4100,13 +4320,30 @@ async function ensureOnlineWorkBundles() {
     let created = 0;
     try {
         loadWorks();
+        const deletedIdentities = voiceDeletedIdentities();
+        // A work that is back in the library was re-imported on purpose; its
+        // tombstone must not block a future delete.
+        let tombstonesChanged = false;
+        for (const work of works) {
+            if (!work?.fileStorage) continue;
+            for (const code of voiceBundleCodes(work)) {
+                if (deletedIdentities.delete(code)) tombstonesChanged = true;
+            }
+        }
+        if (tombstonesChanged) writeVoiceDeletedIdentities(deletedIdentities);
         const seen = new Set();
         for (const work of works) {
             if (!work || work.fileStorage || work.browserLocal) continue;
-            const identity = [...voiceWorkCodeSet(work)].sort().join('|');
+            const identity = voiceBundleIdentity(work);
             if (!identity || seen.has(identity)) continue;
             seen.add(identity);
             if (voiceHostForWork(work)) continue;
+            if (onlineBundleAttempted.has(identity)) continue;
+            // A work the user deleted from the library must stay deleted: the online
+            // record still exists, so without this the migration rebuilds the folder
+            // on the next load and the delete looks like it did nothing.
+            if (isVoiceDeleted(work, deletedIdentities)) continue;
+            onlineBundleAttempted.add(identity);
             let sourceWork = work;
             if (!Array.isArray(sourceWork.tracks) || sourceWork.tracks.length === 0) {
                 const code = voiceWorkCode(work);
@@ -4243,3 +4480,11 @@ document.addEventListener('monochrome:file-storage-works-updated', () => {
 
 document.addEventListener('monochrome:voice-album-rendered', mountVoiceMetadataButton);
 document.addEventListener('monochrome:album-render-start', () => document.getElementById('voice-edit-metadata')?.remove());
+
+// UI/test bridge, mirroring window.__monochromeFileStorage: browser probes need
+// to assert the same circle value the facet filter uses, and this module cannot
+// be imported from Node (it touches window at module scope).
+window.__monochromeVoices = {
+    voiceCircleValue,
+    voiceLocalAvailability,
+};

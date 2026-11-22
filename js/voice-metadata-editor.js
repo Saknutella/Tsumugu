@@ -3,8 +3,8 @@
 // instead of requiring an online match.
 import { t } from './i18n.js';
 
-function field(label, name, value, type = 'text') {
-    return `<label class="voice-meta-field"><span>${label}</span><input type="${type}" name="${name}" value="${String(value ?? '').replaceAll('"', '&quot;')}" /></label>`;
+function field(label, name, value, type = 'text', extra = '') {
+    return `<label class="voice-meta-field"><span>${label}</span><input type="${type}"${extra ? ` ${extra}` : ''} name="${name}" value="${String(value ?? '').replaceAll('"', '&quot;')}" /></label>`;
 }
 
 function textarea(label, name, value) {
@@ -41,10 +41,10 @@ export function openVoiceMetadataEditor(work, { onSaved } = {}) {
                 ${field(t('voices.metadata.fields.circle'), 'circle', work.circle)}
                 ${field(t('voices.metadata.fields.artists'), 'artists', artists)}
                 ${field(t('voices.metadata.fields.tags'), 'tags', tags)}
-                ${field(t('voices.metadata.fields.rating'), 'rating', work.rating || 0, 'number')}
-                ${field(t('voices.metadata.fields.ratingCount'), 'ratingCount', work.ratingCount || 0, 'number')}
+                ${field(t('voices.metadata.fields.rating'), 'rating', work.rating || 0, 'number', 'step="0.01" min="0" max="5"')}
+                ${field(t('voices.metadata.fields.ratingCount'), 'ratingCount', work.ratingCount || 0, 'number', 'step="1" min="0"')}
                 ${field(t('voices.metadata.fields.release'), 'release', work.release || '', 'date')}
-                ${field(t('voices.metadata.fields.price'), 'price', work.price || 0, 'number')}
+                ${field(t('voices.metadata.fields.price'), 'price', work.price || 0, 'number', 'step="1" min="0"')}
                 ${field(t('voices.metadata.fields.originalCode'), 'sourceCode', work.sourceCode || work.code || '')}
                 ${field(t('voices.metadata.fields.editionLang'), 'editionLang', work.editionLang || '')}
                 <label class="voice-meta-field"><span>${t('voices.metadata.fields.ageCategory')}</span>
