@@ -156,6 +156,45 @@ function startHost() {
     return child;
 }
 
+// The panel only proves the process started. A host can accept a spawn, print its
+// startup line and then be unreachable (locked data root, crashed worker) — exactly
+// the state where every library action fails while the panel still looks fine.
+let lastHealthSignature = null;
+let healthTimer = null;
+
+async function probeHealth() {
+    try {
+        const response = await fetch(`${hostUrl}/health`, {
+            headers: token ? { Authorization: `Bearer ${token}` } : {},
+            signal: typeof AbortSignal?.timeout === 'function' ? AbortSignal.timeout(5000) : undefined,
+        });
+        const body = await response.json().catch(() => ({}));
+        return { ok: response.ok && body?.ok === true, status: response.status, id: body?.libraryId || '' };
+    } catch (error) {
+        return { ok: false, error: error?.message || String(error) };
+    }
+}
+
+async function reportHealth() {
+    const result = await probeHealth();
+    const signature = JSON.stringify(result);
+    // Print on change only: a healthy host every 30s would bury the useful lines.
+    if (signature === lastHealthSignature) return;
+    lastHealthSignature = signature;
+    if (result.ok) {
+        console.log(`  backend  \u001b[32m✓ healthy\u001b[0m (HTTP ${result.status}, library ${String(result.id).slice(0, 8)})`);
+    } else {
+        console.error(`  backend  \u001b[31m✗ unreachable\u001b[0m ${result.error || `HTTP ${result.status}`}`);
+        console.error(`           \u001b[90mcheck ${hostUrl}/health — file-library actions will fail until it answers\u001b[0m`);
+    }
+}
+
+function startHealthWatch() {
+    if (healthTimer) return;
+    healthTimer = setInterval(() => void reportHealth(), 30_000);
+    healthTimer.unref?.();
+}
+
 function printStatus(startup) {
     if (serverOnly) {
         // Headless: one machine-readable line is easier to scrape than a banner.
@@ -171,7 +210,8 @@ function printStatus(startup) {
     console.log(`  library  ${libraryDir}`);
     console.log('');
     console.log('  \u001b[90mCtrl+C stops both\u001b[0m');
-    console.log('');
+    void reportHealth();
+    startHealthWatch();
 }
 
 console.log(label(`starting host on 127.0.0.1:${hostPort}`));
