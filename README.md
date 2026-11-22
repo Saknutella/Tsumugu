@@ -106,6 +106,56 @@ For alternative instances, check [INSTANCES.md](INSTANCES.md).
 
 ---
 
+## 文件库后端（本地音声库）
+
+在线浏览不需要后端。但「保存到文件库」这一整条链路需要一个本地 host：它持有
+SQLite 索引和内容寻址存储（CAS），把音声文件真正落到你自己的磁盘上。
+
+本仓库**自带**这个 host，在 `server/` 下，零依赖（只用 Node 内置模块）。
+
+**要求**：Node.js 22.5+（用到 `node:sqlite`），推荐 24 LTS。
+
+```bash
+npm install
+
+# 前端 + 后端一起起（推荐）
+npm run dev:web
+
+# 只起后端（无头 / 容器 / 已有前端产物时）
+npm run server
+```
+
+启动后终端会打印：
+
+```
+  app      http://localhost:5173/
+  host     http://127.0.0.1:5174  (auth: bearer)
+  proxied  /storage → http://127.0.0.1:5174
+  data     <repo>/data/storage
+  library  <repo>/data/library
+```
+
+`data/` 是你的库：`storage/library.sqlite`（索引）+ `library/`（音声文件本体），
+已在 `.gitignore` 里，不会进版本库。**备份就备份这个目录。**
+
+可用参数：
+
+| 参数 | 默认 | 说明 |
+| --- | --- | --- |
+| `--data <dir>` | `<repo>/data` | 数据目录（含 `storage/` 与 `library/`） |
+| `--port <n>` | 5173 | 前端端口 |
+| `--host-port <n>` | 5174 | 后端端口 |
+| `--server-only` | — | 只起后端 |
+| `--no-token` | — | 不签发访问令牌（仅调试用；媒体链接将不再签名） |
+
+接自己的部署时，前端按 `VITE_STORAGE_URL` → `?storage=` → 同源 `/storage` 的顺序找后端，
+所以放在反向代理后面只需要把 `/storage/*` 转发到 host 并去掉前缀。
+
+宿主机的库目录**只读**：host 不会自动改名、移动、删除你已有的文件；删除只发生在本应用
+自己入库的条目上。
+
+---
+
 ## Self-Hosting
 
 NOTE: Accounts will not work on self-hosted instances. Our Appwrite authentication system only allows authorized domains.

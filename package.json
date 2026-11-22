@@ -21,7 +21,9 @@
         "lint": "bun run lint:js && bun run lint:css && bun run lint:html",
         "format": "prettier --write .",
         "lhci": "lhci",
-        "lhci:autorun": "npm run build && lhci autorun"
+        "lhci:autorun": "npm run build && lhci autorun",
+        "server": "node scripts/dev-web.mjs --server-only",
+        "dev:web": "node scripts/dev-web.mjs"
     },
     "repository": {
         "type": "git",

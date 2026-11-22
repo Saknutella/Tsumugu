@@ -85,3 +85,9 @@ verify/
 # demo 的 QA 截图同理:证明 demo 跑过,不是 demo 的运行时文件。
 demo/evidence/
 
+
+# 文件库后端的本地数据（SQLite + CAS + 音声文件）。绝不进仓库。
+/data/
+
+# 本地调试产生的临时数据（例如 --data build/… 跑自检）。不属于仓库内容。
+/build/
