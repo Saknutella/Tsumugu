@@ -16,6 +16,18 @@
 这是 `projects/monochrome/` **自己**的协作约定。工作区总规则在根 `AGENTS.md`,本文件只写
 这个 fork 里额外需要遵守的事。优先级:用户 > 工作区根 `AGENTS.md` > 本文件。
 
+### 本仓库已冻结(重要)
+
+**这个 Node 后端不再演进。** 它是 Node 时代的参照实现,保留下来是因为它记录了当时的
+接口行为,也是差分测试的静止参照物。
+
+- **只接受 bugfix**,不接受新功能、不升 schema(停在 v7)、不跟目录布局变更;
+- 它**没有视频后端**(`/api/videos*` 只在 Rust 侧);
+- 新的产品行为一律在 Rust 后端实现;两边行为不一致时,**以 Rust 为准**;
+- 除 bugfix 外改动本仓库的 `server/`,视为违反本约定。
+
+冻结不影响它产出数据的可迁移性:Rust 负责读取并迁移本仓库建立的库;反向不成立。
+
 ## 1. 这是一个 fork,不是从模板生成的项目
 
 - 源码来自 [monochrome-music/monochrome](https://github.com/monochrome-music/monochrome)(Apache-2.0),
