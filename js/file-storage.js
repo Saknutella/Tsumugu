@@ -809,7 +809,11 @@ async function refresh({ silent = false } = {}) {
     }
     const count = mergeFileStorageWorks(localMapped);
     void hydrateLocalDurations(localMapped, hostWorks);
-    const storageCount = hostWorks.length;
+    // Count what the grid shows, not the raw row count. `/api/works` can still
+    // return rows whose folder is gone (an import whose directory was removed
+    // outside the app); the merge above drops those, so counting `hostWorks.length`
+    // printed "3 个作品" above a grid that said "显示 2 / 2".
+    const storageCount = count;
     setStatus(storageCount ? `文件库 · ${storageCount} 个作品` : '文件库 · 空');
     // Remote metadata is an import-time snapshot, persisted in host user_meta.
     // Startup refresh must not refetch every work (expensive and can overwrite
@@ -1273,6 +1277,14 @@ async function scanServerSource() {
 
 const UPLOAD_CHUNK_BYTES = 8 * 1024 * 1024;
 const UPLOAD_IGNORED_RE = /^(desktop\.ini|thumbs\.db|\.ds_store|@folder-icon.*\.ico)$/i;
+// A chunk failing says nothing about the file: the loopback connect can time out
+// while the host is mid-import, the dev proxy can restart, an antivirus scan can
+// stall a write. Losing a 600 MB file — and with it the whole folder — to that is
+// unacceptable, so each chunk retries with backoff and, when the host reports the
+// file is shorter than we thought, resumes from the size it reports.
+const UPLOAD_MAX_ATTEMPTS = 6;
+const UPLOAD_RETRY_BASE_MS = 400;
+const uploadDelay = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
 
 function canonicalUploadRoot(originalRoot) {
     const source = String(originalRoot || '').trim();
@@ -1307,25 +1319,72 @@ async function uploadAndImport(files) {
         const relative = originalRoot && uploadRoot !== originalRoot
             ? uploadRoot + sourceRelative.slice(originalRoot.length)
             : sourceRelative;
-        for (let offset = 0; offset < file.size; offset += UPLOAD_CHUNK_BYTES) {
+        let offset = 0;
+        let attempts = 0;
+        while (offset < file.size) {
             const end = Math.min(file.size, offset + UPLOAD_CHUNK_BYTES);
-            const response = await nativeFetch(`${state.url}/api/upload`, {
-                method: 'POST',
-                headers: {
-                    'Content-Type': file.type || 'application/octet-stream',
-                    'X-Relative-Path': encodeURIComponent(relative),
-                    'X-Upload-Offset': String(offset),
-                    ...(state.token ? { Authorization: `Bearer ${state.token}` } : {}),
-                },
-                // Small chunks avoid both the Chromium large-body abort and the
-                // Node request buffer; the server appends at X-Upload-Offset.
-                body: await file.slice(offset, end).arrayBuffer(),
-            });
-            if (!response.ok) {
-                const json = await response.json().catch(() => ({}));
-                throw new Error(json?.error?.message || `upload failed: ${response.status}`);
+            let response = null;
+            let failure = null;
+            try {
+                response = await nativeFetch(`${state.url}/api/upload`, {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': file.type || 'application/octet-stream',
+                        'X-Relative-Path': encodeURIComponent(relative),
+                        'X-Upload-Offset': String(offset),
+                        ...(state.token ? { Authorization: `Bearer ${state.token}` } : {}),
+                    },
+                    // Send the slice as a Blob, not `arrayBuffer()`: a Blob stays a
+                    // handle to the file and the browser streams it from disk, so the
+                    // tab never holds an 8 MiB copy. Small chunks keep the request
+                    // below both the Chromium large-body abort and the Node request
+                    // buffer; the server appends at X-Upload-Offset.
+                    body: file.slice(offset, end),
+                });
+            } catch (error) {
+                // fetch rejects only on transport failure (reset, timeout, refused).
+                failure = error;
             }
-            setStatus(`上传中… ${index + 1}/${list.length} · ${Math.round((end / file.size) * 100)}%`);
+            if (response?.ok) {
+                // Drain the (tiny) response body. An unread response keeps its body
+                // stream — and the request it came from — alive until GC; a 2.4 GB
+                // folder is ~300 chunks, and that retention is what ran the tab out
+                // of memory.
+                await response.arrayBuffer().catch(() => {});
+                offset = end;
+                attempts = 0;
+                setStatus(`上传中… ${index + 1}/${list.length} · ${Math.round((end / file.size) * 100)}%`);
+                continue;
+            }
+            if (response) {
+                const json = await response.json().catch(() => ({}));
+                const size = Number(json?.size);
+                if (response.status === 409 && Number.isFinite(size)) {
+                    // The host appends at an exact offset, so it tells us the real
+                    // size when they disagree. Resume from there instead of
+                    // re-sending what it already has.
+                    if (size > offset && size <= end) {
+                        offset = size;
+                        attempts = 0;
+                        continue;
+                    }
+                    if (size === 0 && offset > 0) {
+                        offset = 0;
+                        attempts = 0;
+                        continue;
+                    }
+                }
+                failure = new Error(json?.error?.message || `upload failed: ${response.status}`);
+                // Any other 4xx is this file's own problem (bad path, oversize):
+                // retrying cannot change the answer, so fail now and say why.
+                if (response.status < 500 && response.status !== 409) throw failure;
+            }
+            attempts += 1;
+            if (attempts > UPLOAD_MAX_ATTEMPTS) {
+                throw new Error(`上传中断（${relative}）：${failure?.message || failure}`);
+            }
+            setStatus(`重试中… ${index + 1}/${list.length}（第 ${attempts}/${UPLOAD_MAX_ATTEMPTS} 次）`, true);
+            await uploadDelay(UPLOAD_RETRY_BASE_MS * 2 ** (attempts - 1));
         }
         setStatus(`上传中… ${index + 1}/${list.length}`);
     }

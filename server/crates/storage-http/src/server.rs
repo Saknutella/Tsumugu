@@ -785,18 +785,77 @@ async fn stream_file(path: &std::path::Path, offset: u64, length: u64) -> Result
 }
 
 use futures_util::TryStreamExt;
+use tokio::io::AsyncWriteExt;
+
+/// Read and discard the rest of a request body we are about to reject.
+///
+/// WHY: hyper cannot keep a connection whose request body was never read. Answering
+/// a rejection straight away makes it reset the socket, so the client sees
+/// `ECONNRESET`/`ECONNABORTED` and the JSON error is lost entirely — a rejected
+/// chunk then looks like a dead connection instead of a retryable offset mismatch.
+/// Draining first turns the rejection back into a readable response.
+async fn drain_incoming(mut body: Incoming) {
+    // Cap the work: a client that streams gigabytes at a path we already rejected
+    // must not keep the connection busy. 64 MiB is eight chunk-sized writes, which
+    // covers a client that ignored our 8 MiB chunk size.
+    const DRAIN_LIMIT: u64 = 64 * 1024 * 1024;
+    let mut drained: u64 = 0;
+    while let Some(frame) = body.frame().await {
+        let Ok(frame) = frame else { break };
+        if let Ok(data) = frame.into_data() {
+            drained += data.len() as u64;
+            if drained >= DRAIN_LIMIT {
+                break;
+            }
+        }
+    }
+}
+
+/// Reject an upload after reading its body (see `drain_incoming`).
+async fn reject_upload(
+    request: Request<Incoming>,
+    status: StatusCode,
+    code: &str,
+    message: &str,
+) -> Response<Body> {
+    drain_incoming(request.into_body()).await;
+    send_error(status, code, message)
+}
+
+/// Reject an upload with the file's real size so the client can resume from it.
+///
+/// Node sends the same `size` field; the frontend retries from it instead of
+/// restarting a multi-gigabyte upload.
+async fn reject_upload_sized(request: Request<Incoming>, message: &str, size: u64) -> Response<Body> {
+    drain_incoming(request.into_body()).await;
+    json_response(
+        StatusCode::CONFLICT,
+        &json!({
+            "ok": false,
+            "error": { "code": "ECONFLICT", "message": message },
+            "size": size,
+        }),
+    )
+}
 
 /// `POST /api/upload`: chunked append into the source root.
+///
+/// The body is a byte slice at `X-Upload-Offset`, not the whole file: a browser
+/// cannot stream several gigabytes in one request. Every write therefore lands at
+/// an exact offset, which is what makes a failed chunk retryable (see
+/// `reject_upload_sized`) instead of fatal for the whole file.
 async fn handle_upload(state: Arc<State>, request: Request<Incoming>) -> Response<Body> {
-    let source_root = {
-        let host = match state.host.lock() {
-            Ok(host) => host,
-            Err(_) => return send_error(StatusCode::INTERNAL_SERVER_ERROR, "EINTERNAL", "internal error"),
-        };
-        host.source_root.clone()
+    // Take the lock and drop it in this statement: a `MutexGuard` held across an
+    // `await` makes the connection future non-`Send`, which `tokio::spawn` rejects.
+    let (source_root, poisoned) = match state.host.lock() {
+        Ok(host) => (host.source_root.clone(), false),
+        Err(_) => (None, true),
     };
+    if poisoned {
+        return reject_upload(request, StatusCode::INTERNAL_SERVER_ERROR, "EINTERNAL", "internal error").await;
+    }
     let Some(source_root) = source_root else {
-        return send_error(StatusCode::BAD_REQUEST, "EPATHDENIED", "source is not configured on this host");
+        return reject_upload(request, StatusCode::BAD_REQUEST, "EPATHDENIED", "source is not configured on this host").await;
     };
     let raw_header = request
         .headers()
@@ -804,7 +863,7 @@ async fn handle_upload(state: Arc<State>, request: Request<Incoming>) -> Respons
         .and_then(|value| value.to_str().ok())
         .unwrap_or("");
     let Some(relative) = percent_decode(raw_header) else {
-        return send_error(StatusCode::BAD_REQUEST, "EBADREQUEST", "X-Relative-Path is not valid percent encoding");
+        return reject_upload(request, StatusCode::BAD_REQUEST, "EBADREQUEST", "X-Relative-Path is not valid percent encoding").await;
     };
     let relative = relative.replace('\\', "/");
     if relative.is_empty()
@@ -812,40 +871,50 @@ async fn handle_upload(state: Arc<State>, request: Request<Incoming>) -> Respons
         || relative.split('/').any(|part| part == "..")
         || relative.contains(':')
     {
-        return send_error(StatusCode::BAD_REQUEST, "EPATHDENIED", "relative path is not allowed");
+        return reject_upload(request, StatusCode::BAD_REQUEST, "EPATHDENIED", "relative path is not allowed").await;
     }
     let target = storage_core::paths::resolve_lexical(
         &source_root.join(relative.replace('/', std::path::MAIN_SEPARATOR_STR)),
     );
     if target != source_root && !storage_core::paths::is_inside(&source_root, &target) {
-        return send_error(StatusCode::BAD_REQUEST, "EPATHDENIED", "relative path escapes the source root");
+        return reject_upload(request, StatusCode::BAD_REQUEST, "EPATHDENIED", "relative path escapes the source root").await;
     }
     let offset = match request.headers().get("x-upload-offset") {
         None => 0u64,
         Some(value) => match value.to_str().ok().and_then(|text| text.parse::<u64>().ok()) {
             Some(offset) => offset,
-            None => return send_error(StatusCode::BAD_REQUEST, "EBADREQUEST", "X-Upload-Offset must be a non-negative integer"),
+            None => {
+                return reject_upload(request, StatusCode::BAD_REQUEST, "EBADREQUEST", "X-Upload-Offset must be a non-negative integer")
+                    .await
+            }
         },
     };
     if offset > 0 {
-        match std::fs::metadata(&target) {
+        match tokio::fs::metadata(&target).await {
             Ok(info) if info.is_file() && info.len() == offset => {}
-            _ => return send_error(StatusCode::CONFLICT, "ECONFLICT", "upload offset does not match the file size"),
+            // Report where the file really ends: the client resumes from there
+            // rather than throwing away everything already uploaded.
+            Ok(info) if info.is_file() => {
+                return reject_upload_sized(request, "upload offset does not match the file size", info.len()).await
+            }
+            _ => return reject_upload_sized(request, "upload offset has no existing file", 0).await,
         }
     }
     if let Some(parent) = target.parent() {
-        if let Err(error) = std::fs::create_dir_all(parent) {
-            return send_error(StatusCode::INTERNAL_SERVER_ERROR, "EINTERNAL", &error.to_string());
+        if let Err(error) = tokio::fs::create_dir_all(parent).await {
+            return reject_upload(request, StatusCode::INTERNAL_SERVER_ERROR, "EINTERNAL", &error.to_string()).await;
         }
     }
-    let flags = if offset > 0 {
-        std::fs::OpenOptions::new().append(true).open(&target)
+    let opened = if offset > 0 {
+        tokio::fs::OpenOptions::new().append(true).open(&target).await
     } else {
-        std::fs::OpenOptions::new().write(true).create(true).truncate(true).open(&target)
+        tokio::fs::OpenOptions::new().write(true).create(true).truncate(true).open(&target).await
     };
-    let mut file = match flags {
+    let mut file = match opened {
         Ok(file) => file,
-        Err(error) => return send_error(StatusCode::INTERNAL_SERVER_ERROR, "EINTERNAL", &error.to_string()),
+        Err(error) => {
+            return reject_upload(request, StatusCode::INTERNAL_SERVER_ERROR, "EINTERNAL", &error.to_string()).await
+        }
     };
     let mut body = request.into_body();
     let mut written: u64 = 0;
@@ -858,15 +927,17 @@ async fn handle_upload(state: Arc<State>, request: Request<Incoming>) -> Respons
         if offset + written > MAX_UPLOAD_BYTES {
             if offset == 0 {
                 drop(file);
-                let _ = std::fs::remove_file(&target);
+                let _ = tokio::fs::remove_file(&target).await;
             }
             return send_error(StatusCode::PAYLOAD_TOO_LARGE, "ETOOLARGE", "upload exceeds the 8 GiB limit");
         }
-        use std::io::Write;
-        if let Err(error) = file.write_all(&data) {
+        // `tokio::fs` runs the write on the blocking pool, so one slow disk cannot
+        // pin a runtime worker. With eight parallel imports (fileConcurrency) the
+        // synchronous version could hold every worker and starve `accept()`.
+        if let Err(error) = file.write_all(&data).await {
             if offset == 0 {
                 drop(file);
-                let _ = std::fs::remove_file(&target);
+                let _ = tokio::fs::remove_file(&target).await;
             }
             return send_error(StatusCode::INTERNAL_SERVER_ERROR, "EINTERNAL", &error.to_string());
         }

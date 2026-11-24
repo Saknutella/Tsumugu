@@ -10,6 +10,7 @@ import kikoeruApiProxyPlugin from './vite-plugin-kikoeru-api.js';
 import youtubeMetaPlugin from './vite-plugin-youtube-meta.js';
 import { playwright } from '@vitest/browser-playwright';
 import { execSync } from 'child_process';
+import { createWatchIgnore } from './watch-roots.mjs';
 
 function proxyAudioPlugin() {
     return {
@@ -26,6 +27,25 @@ function getGitCommitHash() {
     } catch {
         return 'unknown';
     }
+}
+
+/**
+ * 让 watcher 的 error 事件永远不会掀掉进程。
+ *
+ * chokidar 打到被占用的文件时 `emit('error', EBUSY)`;EventEmitter 上没有 `error`
+ * 监听器时 Node 会直接抛,整个 dev server 退出 —— 上传/下载写到被监听目录时必现。
+ */
+function watchErrorGuard() {
+    return {
+        name: 'watch-error-guard',
+        configureServer(server: { watcher: NodeJS.EventEmitter; config: { logger: { warn: (msg: string) => void } } }) {
+            server.watcher.on('error', (error: NodeJS.ErrnoException) => {
+                server.config.logger.warn(
+                    `[watch] 忽略一次文件监听错误(${error?.code || error?.message});dev server 继续运行`,
+                );
+            });
+        },
+    };
 }
 
 export default defineConfig(({ mode }) => {
@@ -97,19 +117,15 @@ export default defineConfig(({ mode }) => {
                 // allowedHosts: ['<your_tailscale_hostname>'], // e.g. pi5.tailf5f622.ts.net
             },
             watch: {
-                // 编辑器/工具在源码目录写临时文件时,Windows 上 watcher 会因 EBUSY 崩掉整台 dev server;
-                // 浏览器 profile 的 Cookies 等文件会被锁定;运行产物不参与源码 HMR,直接忽略。
+                // 只监听浏览器源码(见 watch-roots.mjs)。以前是黑名单:数据目录、后端源码
+                // 都在监听范围内,而 dev loop 上传正是往 `data/` 里写 —— Windows 上
+                // 文件被占用时 chokidar 抛 EBUSY,把整个 dev server 打挂。
                 ignored: [
+                    createWatchIgnore(__dirname),
                     '**/.*.tmpdir/**',
                     '**/*.tmpdir/**',
-                    '**/verify/.tmp/**',
                     '**/.cache/**',
                     '**/artifacts/**',
-                    '**/dist/**',
-                    // Rust 构建目录: cargo 编译时反复重写 `.exe`/fingerprint, Windows
-                    // 上 watcher 遇到被占用的句柄会 EBUSY 并让整个 dev server 退出
-                    // (编译 demo 的 Tauri 外壳时必现)。这些文件不参与源码 HMR。
-                    '**/target/**',
                 ],
             },
         },
@@ -129,6 +145,7 @@ export default defineConfig(({ mode }) => {
         },
         plugins: [
             proxyAudioPlugin(),
+            watchErrorGuard(),
             authGatePlugin(),
             uploadPlugin(),
             blobAssetPlugin(),
