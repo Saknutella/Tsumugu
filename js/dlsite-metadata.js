@@ -62,6 +62,96 @@ function nuxtWorkRecords(payload) {
 }
 
 /**
+ * Follow the payload's index table all the way down.
+ *
+ * `payload.resolve` only undoes one hop, which is enough for a scalar but not for
+ * the product record: `genres` is an array of indexes, each of which is an object
+ * of further indexes. Without a deep resolve those come back as raw integers.
+ *
+ * The table stores *every* value, so a property's number is always an index —
+ * including booleans and numbers. Dereferencing a number that came *out* of the
+ * table would walk somewhere unrelated (a rating count would resolve to whatever
+ * entry happens to sit at that offset), which is why index lookup and value
+ * materialisation are two separate steps here.
+ */
+function nuxtEntry(payload, index, depth = 0) {
+    if (depth > 10) return null;
+    if (typeof index !== 'number' || !Number.isInteger(index)) return nuxtValue(payload, index, depth);
+    return nuxtValue(payload, payload.array[index], depth);
+}
+
+function nuxtValue(payload, value, depth = 0) {
+    if (depth > 10 || value === null || value === undefined) return null;
+    if (typeof value !== 'object') return value;
+    if (Array.isArray(value)) {
+        // devalue markers: `["ShallowRef", <index>]` and friends name a wrapper,
+        // not a value; the wrapped index is the real payload.
+        if (typeof value[0] === 'string' && /^(Shallow)?(Ref|Reactive)$/.test(value[0])) {
+            return nuxtEntry(payload, value[1], depth + 1);
+        }
+        return value.map((item) => nuxtEntry(payload, item, depth + 1));
+    }
+    const out = {};
+    for (const [key, item] of Object.entries(value)) out[key] = nuxtEntry(payload, item, depth + 1);
+    return out;
+}
+
+/**
+ * The product record of *this* page.
+ *
+ * WHY this exists: DLsite serves a Nuxt payload, and the markup the field readers
+ * below were written against (`<th>声優</th>`, `work.genre/` links, `販売日` table
+ * rows) is no longer in the HTML. Everything those readers produced came back
+ * empty — CV, tags, release date, review count — while title/circle/rating/price
+ * survived because they also exist in meta tags. A locally imported work then
+ * showed no circle, no CV and no tags even though DLsite had all of them.
+ */
+function nuxtProduct(payload) {
+    const records = nuxtWorkRecords(payload);
+    for (const { record } of records) {
+        if (record.work_name === undefined) continue;
+        const product = nuxtValue(payload, record);
+        if (product && typeof product === 'object') return product;
+    }
+    return null;
+}
+
+/** `release_date` is unix seconds; render it in UTC so the day cannot shift. */
+function nuxtReleaseDate(product) {
+    const seconds = Number(product?.release_date);
+    if (!Number.isFinite(seconds) || seconds <= 0) return '';
+    const date = new Date(seconds * 1000);
+    const month = String(date.getUTCMonth() + 1).padStart(2, '0');
+    const day = String(date.getUTCDate()).padStart(2, '0');
+    return `${date.getUTCFullYear()}-${month}-${day}`;
+}
+
+/** `age_category`: 1 全年齢, 2 R15, 3 R18 (anything else stays unrated). */
+function nuxtAgeCategory(product) {
+    const category = Number(product?.age_category);
+    if (category === 1) return { ageCategory: 'all', nsfw: false };
+    if (category === 2) return { ageCategory: 'r15', nsfw: true };
+    if (category === 3) return { ageCategory: 'r18', nsfw: true };
+    return { ageCategory: '', nsfw: false };
+}
+
+/** Voice actors live under `creators[].role === 'voice_by'`. The inner list is
+ * spelled `creaters` in the raw payload and `creators` once materialised, so read
+ * whichever is present. */
+function nuxtVoiceActors(product) {
+    const groups = Array.isArray(product?.creators) ? product.creators : [];
+    for (const group of groups) {
+        if (String(group?.role || '') !== 'voice_by') continue;
+        const people = Array.isArray(group.creaters) ? group.creaters : Array.isArray(group.creators) ? group.creators : [];
+        const names = people
+            .map((person) => String(person?.name || '').trim())
+            .filter(Boolean);
+        if (names.length) return [...new Set(names)];
+    }
+    return [];
+}
+
+/**
  * Resolve a Nuxt value to a plain string.
  *
  * `devalue` encodes arrays-of-one as `[index]` and nested references as indexes
@@ -272,7 +362,13 @@ function dlsiteEditionInfo(source, currentCode) {
 export function parseDlsiteWorkMetadata(html) {
     const source = String(html || '');
     if (!source) return null;
+    // Payload first: it is the only place CV, tags, release date and review count
+    // still exist (see `nuxtProduct`). The markup readers stay as a fallback for
+    // pages that still serve the old layout.
+    const payload = nuxtPayload(source);
+    const product = payload ? nuxtProduct(payload) : null;
     const title =
+        String(product?.work_name || '') ||
         attribute(source, 'data-work_name') ||
         attribute(source, 'data-work-name') ||
         (source.match(/<h1[^>]*class=["'][^"']*work_name[^"']*["'][^>]*>([\s\S]*?)<\/h1>/i)?.[1] || '')
@@ -283,22 +379,30 @@ export function parseDlsiteWorkMetadata(html) {
     const code =
         // `data-product-id` (hyphen) is the purchase panel's id for *this* page; `data-product_id`
         // also appears in the "other editions" block and would win later in the document.
+        String(product?.product_id || '') ||
         attribute(source, 'data-product-id') ||
         attribute(source, 'data-product_id') ||
         (source.match(/RJ\d{5,8}/i)?.[0] || '').toUpperCase();
-    const circle = parseDlsiteMakerName(source);
+    const circle = String(product?.maker?.maker_name || '').trim() || parseDlsiteMakerName(source);
     const cover =
         source.match(/property=["']og:image["'][^>]*content=["']([^"']+)["']/i)?.[1] ||
         source.match(/content=["']([^"']+)["'][^>]*property=["']og:image["']/i)?.[1] ||
         '';
     const ratingMatch = source.match(/"ratingValue"\s*:\s*"?([0-9.]+)"?/i) || source.match(/ratingValue["']?\s+content=["']([0-9.]+)["']/i);
-    const rating = ratingMatch ? Number(ratingMatch[1]) : 0;
-    const tags = [...new Set(
-        [...source.matchAll(/work\.genre\/[^"']*["'][^>]*>([^<]+)</gi)]
-            .map((match) => decodeEntities(match[1]).trim())
-            .filter(Boolean),
-    )];
-    const age = dlsiteAgeCategory(source);
+    const rating = Number(product?.rating?.average) || (ratingMatch ? Number(ratingMatch[1]) : 0);
+    const payloadTags = (Array.isArray(product?.genres) ? product.genres : [])
+        .map((genre) => String(genre?.genre_name || '').trim())
+        .filter(Boolean);
+    const tags = payloadTags.length
+        ? [...new Set(payloadTags)]
+        : [...new Set(
+            [...source.matchAll(/work\.genre\/[^"']*["'][^>]*>([^<]+)</gi)]
+                .map((match) => decodeEntities(match[1]).trim())
+                .filter(Boolean),
+        )];
+    const payloadAge = product ? nuxtAgeCategory(product) : null;
+    const age = payloadAge?.ageCategory ? payloadAge : dlsiteAgeCategory(source);
+    const payloadActors = product ? nuxtVoiceActors(product) : [];
     return {
         ...dlsiteEditionInfo(source, code),
         code,
@@ -308,10 +412,10 @@ export function parseDlsiteWorkMetadata(html) {
         cover: cover ? decodeEntities(cover) : '',
         rating,
         tags,
-        artists: dlsiteVoiceActors(source),
-        release: dlsiteReleaseDate(source),
-        ratingCount: dlsiteRatingCount(source),
-        price: Number(attribute(source, 'data-price')) || 0,
+        artists: payloadActors.length ? payloadActors : dlsiteVoiceActors(source),
+        release: (product ? nuxtReleaseDate(product) : '') || dlsiteReleaseDate(source),
+        ratingCount: Number(product?.rating?.count) || dlsiteRatingCount(source),
+        price: Number(product?.currency_price?.JPY) || Number(attribute(source, 'data-price')) || 0,
         currency: 'JPY',
         ageCategory: age.ageCategory,
         nsfw: age.nsfw,

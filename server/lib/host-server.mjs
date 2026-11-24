@@ -82,8 +82,39 @@ function sendJson(res, status, payload) {
     res.end(body);
 }
 
-function sendError(res, status, code, message) {
-    sendJson(res, status, { ok: false, error: { code, message } });
+function sendError(res, status, code, message, extra = null) {
+    sendJson(res, status, { ok: false, error: { code, message }, ...(extra || {}) });
+}
+
+// Read and discard a request body we are about to reject.
+//
+// WHY: Node resets the socket of a request whose body was never consumed, so the
+// client saw `ECONNRESET` and the JSON error vanished — a rejected chunk looked
+// like a dead connection instead of a retryable offset mismatch. Capped so a
+// client streaming gigabytes at a rejected path cannot hold the connection.
+const UPLOAD_DRAIN_LIMIT = 64 * 1024 * 1024;
+async function drainRequest(req, limit = UPLOAD_DRAIN_LIMIT) {
+    if (req.readableEnded || req.destroyed) return;
+    let seen = 0;
+    await new Promise((resolve) => {
+        const done = () => {
+            req.off('data', onData);
+            req.off('end', done);
+            req.off('error', done);
+            resolve();
+        };
+        const onData = (chunk) => {
+            seen += chunk.length;
+            if (seen >= limit) {
+                req.destroy();
+                done();
+            }
+        };
+        req.on('data', onData);
+        req.on('end', done);
+        req.on('error', done);
+        req.resume();
+    });
 }
 
 function errorStatus(error) {
@@ -140,8 +171,13 @@ function requireString(value, name) {
  * mechanism differs.
  */
 async function handleUpload(req, res, host, roots) {
+    // Every rejection below drains the body first — see `drainRequest`.
+    const reject = async (status, code, message, extra) => {
+        await drainRequest(req);
+        sendError(res, status, code, message, extra);
+    };
     if (!host.sourceRoot) {
-        sendError(res, 400, 'EPATHDENIED', 'source is not configured on this host');
+        await reject(400, 'EPATHDENIED', 'source is not configured on this host');
         return;
     }
     const rawHeader = String(req.headers['x-relative-path'] || '');
@@ -149,41 +185,45 @@ async function handleUpload(req, res, host, roots) {
     try {
         relative = decodeURIComponent(rawHeader).replaceAll('\\', '/');
     } catch {
-        sendError(res, 400, 'EBADREQUEST', 'X-Relative-Path is not valid percent encoding');
+        await reject(400, 'EBADREQUEST', 'X-Relative-Path is not valid percent encoding');
         return;
     }
     if (!relative || relative.startsWith('/') || isAbsolute(relative) || relative.split('/').includes('..')) {
-        sendError(res, 400, 'EPATHDENIED', 'relative path is not allowed');
+        await reject(400, 'EPATHDENIED', 'relative path is not allowed');
         return;
     }
     const sourceRoot = resolve(host.sourceRoot);
     const target = resolve(sourceRoot, relative);
     if (target !== sourceRoot && !target.startsWith(sourceRoot + sep)) {
-        sendError(res, 400, 'EPATHDENIED', 'relative path escapes the source root');
+        await reject(400, 'EPATHDENIED', 'relative path escapes the source root');
         return;
     }
     const declared = Number(req.headers['content-length'] || 0);
     const maxBytes = 8 * 1024 * 1024 * 1024;
     if (Number.isFinite(declared) && declared > maxBytes) {
-        sendError(res, 413, 'ETOOLARGE', 'upload exceeds the 8 GiB limit');
+        await reject(413, 'ETOOLARGE', 'upload exceeds the 8 GiB limit');
         return;
     }
     const offset = req.headers['x-upload-offset'] === undefined
         ? 0
         : Number(req.headers['x-upload-offset']);
     if (!Number.isInteger(offset) || offset < 0) {
-        sendError(res, 400, 'EBADREQUEST', 'X-Upload-Offset must be a non-negative integer');
+        await reject(400, 'EBADREQUEST', 'X-Upload-Offset must be a non-negative integer');
         return;
     }
     if (offset > 0) {
         try {
             const existing = await stat(target);
             if (!existing.isFile() || existing.size !== offset) {
-                sendError(res, 409, 'ECONFLICT', 'upload offset does not match the file size');
+                // `size` lets the client resume from where the file really ends
+                // instead of restarting a multi-gigabyte upload.
+                await reject(409, 'ECONFLICT', 'upload offset does not match the file size', {
+                    size: existing.isFile() ? existing.size : 0,
+                });
                 return;
             }
         } catch {
-            sendError(res, 409, 'ECONFLICT', 'upload offset has no existing file');
+            await reject(409, 'ECONFLICT', 'upload offset has no existing file', { size: 0 });
             return;
         }
     }
