@@ -154,8 +154,9 @@ npm run server          # 只起后端（需先 build:server）
 接自己的部署时，前端按 `VITE_STORAGE_URL` → `?storage=` → 同源 `/storage` 的顺序找后端，
 所以放在反向代理后面只需要把 `/storage/*` 转发到 host 并去掉前缀。
 
-> **与 Node 版的区别**：Rust host 使用 schema v8，Node 版是 v7。**两者的 `data/` 目录不能互换**，
-> 直接指过去会报 `database schema 8 is newer than supported 7`。迁移需要走正式迁移流程。
+> **与 Node 版的区别**：Rust host 使用 schema v8，Node 版是 v7 且**已冻结**（只修 bug、
+> 不升 schema、无视频路由、以 Rust 为准）。**两者的 `data/` 目录不能互换**，
+> 直接指过去会报 `database schema 8 is newer than supported 7`。从 Node 版升级过来请走正式迁移流程。
 
 ---
 
