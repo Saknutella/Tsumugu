@@ -97,13 +97,14 @@ pub fn resolve_asset(
 
     let file = if source_only {
         let original = original_path.as_deref().unwrap_or("");
-        let path = paths::resolve_lexical(Path::new(original));
+        // Layout v2 stores source paths relative to the source root; older rows may
+        // still be absolute — the resolver accepts both.
+        let Some(path) = storage_core::layout::resolve_stored_path(source_root.as_deref(), original) else {
+            return None;
+        };
         match source_root {
             Some(root) if paths::is_inside(root, &path) => path,
-            Some(_) => return None,
-            // No source root configured: fall back to "must not be an absolute
-            // escape outside data root" by refusing instead of guessing.
-            None => return None,
+            _ => return None,
         }
     } else {
         let rel_path = asset.as_ref().map(|(_, rel, _)| rel.clone()).unwrap_or_default();
@@ -299,7 +300,7 @@ mod tests {
     /// then fails on the boundary, not on "file not found".
     fn post_fixture(tag: &str) -> (Connection, PathBuf, PathBuf, String) {
         let root = std::env::temp_dir().join(format!("mono-media-{tag}-{}", uuid::Uuid::new_v4()));
-        let rel_folder = "Videos/YouTube/c/2026-01-01 v [abc]";
+        let rel_folder = "videos/YouTube/c/2026-01-01 v [abc]";
         let folder = root.join(rel_folder.replace('/', std::path::MAIN_SEPARATOR_STR));
         std::fs::create_dir_all(&folder).unwrap();
         std::fs::write(folder.join("v.mp4"), b"0123456789").unwrap();

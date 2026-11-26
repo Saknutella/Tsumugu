@@ -5,7 +5,7 @@
 //! therefore part of the wire contract, not an implementation detail: the
 //! frontend only reads `error.message`, but the harness diffs `code` as well.
 //!
-//! Deviation (see docs/18-rust-backend.md D1): Node returns 500 for `ENOTFOUND`
+//! Deviation (see docs/18-server.md D1): Node returns 500 for `ENOTFOUND`
 //! because `errorStatus()` never lists it. Rust maps it to 404. The status mapping
 //! lives in `storage-http`; this crate only carries the code.
 

@@ -5,7 +5,7 @@
 //! wire contract the frontend consumes — `listWorks()` in particular is polled
 //! every 5 s and its field names are load-bearing.
 //!
-//! Deliberate deviations from Node are listed in `docs/18-rust-backend.md`. The
+//! Deliberate deviations from Node are listed in `docs/18-server.md`. The
 //! two that touch this file: `listWorks()` emits `duration`/`workRoot` (which the
 //! frontend reads but Node never sent), and cover detection only accepts a root
 //! `folder.*` or an explicit `kind=cover` entry (D3).
@@ -135,6 +135,23 @@ impl Host {
             },
         )?;
 
+        // `entry.original_path` is absolute, and layout v2 puts source folders one
+        // level deeper (`voices/<work>`). Only the host knows the source root, so
+        // the library's own migration could not rewrite it. Idempotent.
+        // Layout v2 splits the source root by content type. Move the folders before
+        // rewriting `entry.original_path`, so the rewrite describes a tree that
+        // already exists. Both steps are idempotent.
+        if let Some(source) = &source_root {
+            storage_core::layout::migrate_source_dirs(source, Some(&library.root))?;
+        }
+        storage_core::layout::migrate_rows(&library.connection, source_root.as_deref())?;
+        // Creation attachments are user content kept under the old library-root
+        // tree; they move into the source root's readable folders once, before
+        // any request can address them. Only the host knows the source root.
+        if let Some(source) = &source_root {
+            storage_core::layout::migrate_creation_assets(&library.connection, &library.root, source)?;
+        }
+
         // A previous host process cannot have a live worker: we hold the lease.
         // Mark its unfinished batches interrupted so the UI does not poll forever.
         let timestamp = now_iso();
@@ -220,20 +237,25 @@ impl Host {
                         .and_then(Value::as_str)
                         .unwrap_or("")
                         .to_string();
-                    if !source_path.is_empty() && !logical.is_empty() {
-                        let mut current = paths::resolve_lexical(Path::new(source_path));
-                        for _ in logical.split('/').filter(|part| !part.is_empty()) {
-                            match current.parent() {
-                                Some(parent) => current = parent.to_path_buf(),
-                                None => break,
+                    // The snapshot is written by the ingest layer, which stores the
+                    // path source-root relative since phase 2a; older snapshots are
+                    // absolute. Resolve instead of assuming one shape.
+                    let resolved = storage_core::layout::resolve_stored_path(self.source_root.as_deref(), source_path);
+                    if let Some(mut current) = resolved {
+                        if !logical.is_empty() {
+                            for _ in logical.split('/').filter(|part| !part.is_empty()) {
+                                match current.parent() {
+                                    Some(parent) => current = parent.to_path_buf(),
+                                    None => break,
+                                }
                             }
-                        }
-                        let inside = match &self.source_root {
-                            Some(root) => paths::is_inside(root, &current),
-                            None => false,
-                        };
-                        if inside && current.exists() {
-                            return Ok(Some(current));
+                            let inside = match &self.source_root {
+                                Some(root) => paths::is_inside(root, &current),
+                                None => false,
+                            };
+                            if inside && current.exists() {
+                                return Ok(Some(current));
+                            }
                         }
                     }
                 }
@@ -249,8 +271,10 @@ impl Host {
             )
             .optional()?;
         if let Some((original_path, logical)) = entry {
-            if !original_path.is_empty() {
-                let mut current = paths::resolve_lexical(Path::new(&original_path));
+            // Layout v2 stores this relative to the source root; older rows are
+            // absolute. The resolver accepts both, and a path it cannot place is
+            // "unknown work root", not a guess.
+            if let Some(mut current) = storage_core::layout::resolve_stored_path(self.source_root.as_deref(), &original_path) {
                 for _ in logical.split('/').filter(|part| !part.is_empty()) {
                     match current.parent() {
                         Some(parent) => current = parent.to_path_buf(),
@@ -453,13 +477,24 @@ impl Host {
             .source_root
             .clone()
             .ok_or_else(|| Error::path_denied("source is not configured on this host"))?;
-        let relative_path = normalize_relative(require_string(input, "relativePath")?.to_string());
+        // Clients speak bare source-relative paths; the layout decides the type
+        // directory (`voices/`). Already-prefixed paths pass through unchanged, so
+        // a caller that scanned first is unaffected.
+        let relative_path = storage_core::layout::normalize_source_relative(&normalize_relative(
+            require_string(input, "relativePath")?.to_string(),
+        ));
         let work_root = {
             let raw = input.get("workRoot").and_then(Value::as_str).unwrap_or("");
             if raw.is_empty() {
-                relative_path.split('/').next().unwrap_or("").to_string()
+                // `<type>/<work>`: the work root is the first two segments.
+                let mut parts = relative_path.split('/');
+                let type_dir = parts.next().unwrap_or("");
+                match parts.next() {
+                    Some(work) if !work.is_empty() => format!("{type_dir}/{work}"),
+                    _ => type_dir.to_string(),
+                }
             } else {
-                normalize_relative(raw.to_string())
+                storage_core::layout::normalize_source_relative(&normalize_relative(raw.to_string()))
             }
         };
         if relative_path.is_empty() || work_root.is_empty() {
@@ -570,14 +605,14 @@ impl Host {
             candidate_source_code.to_uppercase(),
             target_work_id.clone().unwrap_or_default()
         );
-        let outcome = match ingest::ingest_candidate(&mut self.library, &candidate, Some(&file_key), &self.allowed_source_roots) {
+        let outcome = match ingest::ingest_candidate(&mut self.library, &candidate, Some(&file_key), &self.allowed_source_roots, &source_root) {
             Ok(value) => value,
             Err(error) if error.code == Some("EIDEMPOTENCYCONFLICT") => {
                 // A downloaded file can be retried with newer metadata while the
                 // same path keeps an older job. Do not surface a stale plan
                 // conflict for file imports.
                 let retry_key = format!("{file_key}:retry:{}", storage_core::jsonutil::now_iso());
-                ingest::ingest_candidate(&mut self.library, &candidate, Some(&retry_key), &self.allowed_source_roots)?
+                ingest::ingest_candidate(&mut self.library, &candidate, Some(&retry_key), &self.allowed_source_roots, &source_root)?
             }
             Err(error) => return Err(error),
         };
@@ -936,9 +971,14 @@ impl Host {
         // edition usually lives in its own subtree, e.g. `…_本体/音声文件/mp3`).
         let work_root = if to_delete.is_empty() { None } else { self.work_root_for_work(work_id)? };
         for file in &to_delete {
-            if !file.original.is_empty() && !self.path_shared_with_other_work(work_id, &file.original)? {
-                let path = paths::resolve_lexical(Path::new(&file.original));
-                let _ = std::fs::remove_file(&path);
+            // Stored values are source-relative in layout v2 (absolute in older
+            // rows); resolve before touching the filesystem, and skip when it cannot
+            // be placed — deleting "the relative path as if absolute" would remove
+            // something under the process cwd.
+            let resolved = storage_core::layout::resolve_stored_path(self.source_root.as_deref(), &file.original);
+            if let Some(path) = resolved {
+                if !self.path_shared_with_other_work(work_id, &file.original)? {
+                    let _ = std::fs::remove_file(&path);
                 if let (Some(root), Some(parent)) = (&work_root, path.parent()) {
                     let mut current = parent.to_path_buf();
                     while current != *root && paths::is_inside(root, &current) {
@@ -950,6 +990,7 @@ impl Host {
                             None => break,
                         }
                     }
+                }
                 }
             }
             self.delete_entry_and_assets(&file.entry_id)?;
@@ -1252,11 +1293,17 @@ impl Host {
         }))
     }
 
-    /// Hard-delete works (`deleteWorks`).
+    /// Move works to the trash (`deleteWorks`).
     ///
-    /// Deletes the work root only when no other live work references a path inside
-    /// it. A file or root shared with another work is never removed; that rule is
-    /// what keeps duplicated imports from erasing the survivor's content.
+    /// Deleting used to unlink the bytes. It now renames the work folder into
+    /// `<data>/trash/<work id>/` and soft-deletes the row; the slot manifest
+    /// records the source-relative origin, so [`Self::restore_works`] is a
+    /// rename back — nothing to re-import and no metadata to lose.
+    ///
+    /// A folder shared with another live work is never moved: moving it would
+    /// take the survivor's files with it. That work is only soft-deleted, and
+    /// its manifest says `moved: false` so restore knows there is nothing to
+    /// put back.
     pub fn delete_works(&mut self, work_ids: &[String]) -> Result<Value> {
         if work_ids.is_empty() {
             return Err(Error::bad_request("workIds must be a non-empty array"));
@@ -1269,12 +1316,31 @@ impl Host {
         }
         let mut results = Vec::new();
         for work_id in unique {
-            match self.delete_one_work(&work_id) {
-                Ok((deleted, folder_removed)) => results.push(json!({
+            match self.trash_one_work(&work_id) {
+                Ok(entry) => results.push(json!({
                     "workId": work_id,
                     "ok": true,
-                    "deleted": deleted,
-                    "folderRemoved": folder_removed,
+                    "deleted": true,
+                    "trashed": true,
+                    // The frontend reads `folderRemoved: false` to warn that the
+                    // folder survived a locked file. With a trash slot the folder
+                    // is gone from the source root; a shared root is the only
+                    // case where it legitimately stays.
+                    "folderRemoved": entry.moved,
+                    "moved": entry.moved,
+                    "files": entry.files,
+                    "bytes": entry.bytes,
+                    "originalRoot": entry.original_root,
+                    "deletedAt": entry.deleted_at,
+                })),
+                Err(error) if error.code == Some("ENOTFOUND") => results.push(json!({
+                    // Node answers `ok: true, deleted: false` for an id it does
+                    // not own: the request succeeded, there was nothing to do.
+                    // A work that is already trashed is that same case.
+                    "workId": work_id,
+                    "ok": true,
+                    "deleted": false,
+                    "folderRemoved": true,
                 })),
                 Err(error) => results.push(json!({
                     "workId": work_id,
@@ -1291,20 +1357,271 @@ impl Host {
         Ok(json!({ "works": results, "deleted": deleted }))
     }
 
-    fn delete_one_work(&mut self, work_id: &str) -> Result<(bool, bool)> {
-        let exists: Option<i64> = self
+    /// Soft-delete one work and move its folder into the trash.
+    fn trash_one_work(&mut self, work_id: &str) -> Result<storage_core::trash::Entry> {
+        let title: Option<String> = self
             .library
             .connection
             .query_row(
-                "SELECT 1 FROM work WHERE work_id = ? AND deleted_at IS NULL",
+                "SELECT title FROM work WHERE work_id = ? AND deleted_at IS NULL",
                 rusqlite::params![work_id],
                 |row| row.get(0),
             )
             .optional()?;
-        if exists.is_none() {
-            return Ok((false, true));
-        }
+        let Some(title) = title else {
+            return Err(Error::not_found("work not found"));
+        };
         let work_root = self.work_root_for_work(work_id)?;
+        // Same rule as the old hard delete: a path another live work still
+        // references is not ours to move.
+        let other_originals: Vec<String> = {
+            let mut statement = self.library.connection.prepare(
+                "SELECT e.original_path FROM entry e JOIN work w ON w.work_id = e.work_id
+                 WHERE e.work_id <> ? AND w.deleted_at IS NULL AND e.original_path IS NOT NULL",
+            )?;
+            let rows = statement
+                .query_map(rusqlite::params![work_id], |row| row.get::<_, String>(0))?
+                .collect::<rusqlite::Result<Vec<_>>>()?;
+            rows
+        };
+        let resolve = |stored: &str| storage_core::layout::resolve_stored_path(self.source_root.as_deref(), stored);
+        let shared_root = match (&work_root, &self.source_root) {
+            (Some(root), Some(_)) => other_originals
+                .iter()
+                .filter_map(|other| resolve(other))
+                .any(|other| paths::is_inside(root, &other)),
+            _ => false,
+        };
+        let data_root = self.library.data_root.clone();
+        let original = match (&work_root, &self.source_root) {
+            (Some(root), Some(source)) if paths::is_inside(source, root) && root != source => {
+                storage_core::layout::stored_source_path(source, root)
+            }
+            // Outside the source root, or no source configured: there is no
+            // relative path to record, and an absolute one would let a later
+            // restore write anywhere. Record nothing.
+            _ => String::new(),
+        };
+        let entry = match (&work_root, &self.source_root) {
+            (Some(root), Some(source))
+                if paths::is_inside(source, root) && root != source && !shared_root && root.exists() =>
+            {
+                storage_core::trash::move_into(&data_root, work_id, root, &original, &title)?
+            }
+            _ => storage_core::trash::record_without_move(&data_root, work_id, &original, &title)?,
+        };
+        self.library.soft_delete_work(work_id)?;
+        Ok(entry)
+    }
+
+    /// Restore works from the trash (`restoreWorks`).
+    ///
+    /// Two cases share one entry point: a slot this host wrote (move the folder
+    /// back, then clear `deleted_at`) and a row `/api/cleanup` soft-deleted
+    /// without moving anything (clear `deleted_at`, no folder to move).
+    pub fn restore_works(&mut self, work_ids: &[String]) -> Result<Value> {
+        if work_ids.is_empty() {
+            return Err(Error::bad_request("workIds must be a non-empty array"));
+        }
+        let mut unique: Vec<String> = Vec::new();
+        for id in work_ids {
+            if !unique.contains(id) {
+                unique.push(id.clone());
+            }
+        }
+        let mut results = Vec::new();
+        for work_id in unique {
+            match self.restore_one_work(&work_id) {
+                Ok(payload) => results.push(payload),
+                Err(error) => results.push(json!({
+                    "workId": work_id,
+                    "ok": false,
+                    "error": error.message,
+                    "code": error.code,
+                })),
+            }
+        }
+        let restored = results
+            .iter()
+            .filter(|result| result.get("ok").and_then(Value::as_bool) == Some(true))
+            .count();
+        Ok(json!({ "works": results, "restored": restored }))
+    }
+
+    fn restore_one_work(&mut self, work_id: &str) -> Result<Value> {
+        let data_root = self.library.data_root.clone();
+        let slot = storage_core::trash::slot(&data_root, work_id)?;
+        let entry = storage_core::trash::read_manifest(&slot);
+        let deleted: Option<Option<String>> = self
+            .library
+            .connection
+            .query_row(
+                "SELECT deleted_at FROM work WHERE work_id = ?",
+                rusqlite::params![work_id],
+                |row| row.get(0),
+            )
+            .optional()?;
+        let row_exists = deleted.is_some();
+        let row_deleted = matches!(deleted, Some(Some(_)));
+        match entry {
+            Some(entry) => {
+                let mut restored_to = Value::Null;
+                if entry.moved {
+                    let source = self
+                        .source_root
+                        .clone()
+                        .ok_or_else(|| Error::path_denied("source is not configured on this host"))?;
+                    let target = storage_core::trash::restore(&data_root, &source, &entry)?;
+                    restored_to = json!(target.to_string_lossy());
+                }
+                if row_deleted {
+                    self.library.restore_work(work_id)?;
+                }
+                storage_core::trash::remove_slot(&data_root, work_id)?;
+                Ok(json!({
+                    "workId": work_id,
+                    "ok": true,
+                    "restored": true,
+                    "moved": entry.moved,
+                    "rootPath": restored_to,
+                }))
+            }
+            None if row_deleted => {
+                self.library.restore_work(work_id)?;
+                Ok(json!({
+                    "workId": work_id,
+                    "ok": true,
+                    "restored": true,
+                    "moved": false,
+                    "rootPath": Value::Null,
+                }))
+            }
+            None if row_exists => Err(Error::new("work is not in the trash")),
+            None => Err(Error::not_found("work not found")),
+        }
+    }
+
+    /// What the trash holds, newest first (`listTrash`).
+    ///
+    /// Two kinds of entry share the list because both are "deleted, not yet
+    /// purged" and both are restorable: a slot the delete route moved bytes into,
+    /// and a row `/api/cleanup` only soft-deleted (its files were already gone, so
+    /// there is nothing to move). Leaving the second kind out would make the
+    /// cleanup action permanently invisible — the row is hidden from `/api/works`
+    /// and, without an entry here, unreachable from the UI.
+    pub fn list_trash(&self) -> Result<Value> {
+        let data_root = &self.library.data_root;
+        let mut entries: Vec<Value> = storage_core::trash::list(data_root)
+            .into_iter()
+            .map(|(slot, entry)| entry.to_json(&slot))
+            .collect();
+        let slotted: HashSet<String> = entries
+            .iter()
+            .filter_map(|entry| entry.get("workId").and_then(Value::as_str).map(str::to_string))
+            .collect();
+        let rows: Vec<(String, String, String)> = {
+            let mut statement = self.library.connection.prepare(
+                "SELECT work_id, title, deleted_at FROM work WHERE deleted_at IS NOT NULL ORDER BY deleted_at DESC",
+            )?;
+            let mapped = statement
+                .query_map([], |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?)))?
+                .collect::<rusqlite::Result<Vec<_>>>()?;
+            mapped
+        };
+        for (work_id, title, deleted_at) in rows {
+            if slotted.contains(&work_id) {
+                continue;
+            }
+            entries.push(json!({
+                "workId": work_id,
+                "title": title,
+                "originalRoot": "",
+                "deletedAt": deleted_at,
+                "files": 0,
+                "bytes": 0,
+                "moved": false,
+                "slot": "",
+            }));
+        }
+        entries.sort_by(|left, right| {
+            let key = |value: &Value| value.get("deletedAt").and_then(Value::as_str).unwrap_or("").to_string();
+            key(right).cmp(&key(left))
+        });
+        let bytes: u64 = entries.iter().filter_map(|entry| entry.get("bytes").and_then(Value::as_u64)).sum();
+        let files: u64 = entries.iter().filter_map(|entry| entry.get("files").and_then(Value::as_u64)).sum();
+        Ok(json!({ "entries": entries, "total": entries.len(), "bytes": bytes, "files": files }))
+    }
+
+    /// Empty the trash (`purgeTrash`).
+    ///
+    /// With `work_ids` empty every slot and every soft-deleted work is purged;
+    /// afterwards the bytes are unrecoverable. With ids, only those.
+    pub fn purge_trash(&mut self, work_ids: &[String]) -> Result<Value> {
+        let mut targets: Vec<String> = Vec::new();
+        if work_ids.is_empty() {
+            for (_, entry) in storage_core::trash::list(&self.library.data_root) {
+                if !targets.contains(&entry.work_id) {
+                    targets.push(entry.work_id);
+                }
+            }
+            let soft: Vec<String> = {
+                let mut statement = self
+                    .library
+                    .connection
+                    .prepare("SELECT work_id FROM work WHERE deleted_at IS NOT NULL")?;
+                let rows = statement
+                    .query_map([], |row| row.get::<_, String>(0))?
+                    .collect::<rusqlite::Result<Vec<_>>>()?;
+                rows
+            };
+            for work_id in soft {
+                if !targets.contains(&work_id) {
+                    targets.push(work_id);
+                }
+            }
+        } else {
+            for id in work_ids {
+                if !targets.contains(id) {
+                    targets.push(id.clone());
+                }
+            }
+        }
+        let mut results = Vec::new();
+        for work_id in targets {
+            match self.purge_one_work(&work_id) {
+                Ok(()) => results.push(json!({ "workId": work_id, "ok": true })),
+                Err(error) => results.push(json!({
+                    "workId": work_id,
+                    "ok": false,
+                    "error": error.message,
+                    "code": error.code,
+                })),
+            }
+        }
+        let purged = results
+            .iter()
+            .filter(|result| result.get("ok").and_then(Value::as_bool) == Some(true))
+            .count();
+        Ok(json!({ "works": results, "purged": purged }))
+    }
+
+    /// Remove a trashed work's rows and any asset no other work references.
+    ///
+    /// A live work is refused: purge is the one irreversible action, and a
+    /// mistaken id must not erase a work that is still in the library.
+    fn purge_one_work(&mut self, work_id: &str) -> Result<()> {
+        let deleted: Option<Option<String>> = self
+            .library
+            .connection
+            .query_row(
+                "SELECT deleted_at FROM work WHERE work_id = ?",
+                rusqlite::params![work_id],
+                |row| row.get(0),
+            )
+            .optional()?;
+        if let Some(None) = deleted {
+            return Err(Error::new("work is not in the trash"));
+        }
         let entries: Vec<Option<String>> = {
             let mut statement = self
                 .library
@@ -1326,35 +1643,11 @@ impl Host {
                 "SELECT e.original_path FROM entry e JOIN work w ON w.work_id = e.work_id
                  WHERE e.work_id <> ? AND w.deleted_at IS NULL AND e.original_path IS NOT NULL",
             )?;
-            let rows = statement.query_map(rusqlite::params![work_id], |row| row.get::<_, String>(0))?.collect::<rusqlite::Result<Vec<_>>>()?;
+            let rows = statement
+                .query_map(rusqlite::params![work_id], |row| row.get::<_, String>(0))?
+                .collect::<rusqlite::Result<Vec<_>>>()?;
             rows
         };
-
-        let mut parent_dirs: Vec<PathBuf> = Vec::new();
-        for original in entries.into_iter().flatten() {
-            if original.is_empty() {
-                continue;
-            }
-            let source = paths::resolve_lexical(Path::new(&original));
-            let inside = match &self.source_root {
-                Some(root) => paths::is_inside(root, &source),
-                None => false,
-            };
-            if !inside {
-                continue;
-            }
-            if other_originals
-                .iter()
-                .any(|other| paths::resolve_lexical(Path::new(other)) == source)
-            {
-                continue;
-            }
-            if let Some(parent) = source.parent() {
-                parent_dirs.push(parent.to_path_buf());
-            }
-            let _ = std::fs::remove_file(&source);
-        }
-
         // Import-job history references committed_work_id without a cascade.
         self.library.connection.execute(
             "UPDATE import_job SET committed_work_id = NULL, committed_at = NULL,
@@ -1387,44 +1680,36 @@ impl Host {
                 .execute("DELETE FROM asset WHERE asset_id = ?", rusqlite::params![asset_id])?;
         }
 
-        let shared_root = match (&work_root, &self.source_root) {
-            (Some(root), Some(_)) => other_originals.iter().any(|other| {
-                paths::is_inside(root, &paths::resolve_lexical(Path::new(other)))
-            }),
-            _ => false,
-        };
-        // A recursive delete can lose a race with whatever still holds one of the
-        // files (a cover the webview is displaying, an antivirus scan). Retry before
-        // giving up and report the outcome: silently claiming success is how a work
-        // kept reappearing as an empty folder holding only `.monochrome`.
-        let mut folder_removed = true;
-        if let (Some(root), Some(source_root)) = (&work_root, &self.source_root) {
-            if paths::is_inside(source_root, root) && root != source_root && !shared_root {
-                folder_removed = false;
-                for _ in 0..3 {
-                    if std::fs::remove_dir_all(root).is_ok() {
-                        folder_removed = true;
-                        break;
-                    }
-                    std::thread::sleep(std::time::Duration::from_millis(120));
-                }
+        storage_core::trash::remove_slot(&self.library.data_root, work_id)?;
+
+        // The work folder itself is already in `trash/` (or never moved). An
+        // entry the user relocated elsewhere in the source root is not, and
+        // purge is the one action that means "gone for good" — the old hard
+        // delete swept these too. A path another live work still references is
+        // left alone, exactly as before.
+        let resolve = |stored: &str| storage_core::layout::resolve_stored_path(self.source_root.as_deref(), stored);
+        for original in entries.into_iter().flatten() {
+            if original.is_empty() {
+                continue;
             }
-        }
-        if let Some(source_root) = &self.source_root {
-            for parent in parent_dirs {
-                let mut current = parent;
-                while current != *source_root && paths::is_inside(source_root, &current) {
-                    if std::fs::remove_dir(&current).is_err() {
-                        break;
-                    }
-                    match current.parent() {
-                        Some(parent) => current = parent.to_path_buf(),
-                        None => break,
-                    }
-                }
+            let Some(source) = resolve(&original) else { continue };
+            let inside = match &self.source_root {
+                Some(root) => paths::is_inside(root, &source),
+                None => false,
+            };
+            if !inside {
+                continue;
             }
+            if other_originals
+                .iter()
+                .filter_map(|other| resolve(other))
+                .any(|other| other == source)
+            {
+                continue;
+            }
+            let _ = std::fs::remove_file(&source);
         }
-        Ok((true, folder_removed))
+        Ok(())
     }
 
     /// Delete selected files from one work (`deleteWorkFiles`).
@@ -1545,7 +1830,14 @@ impl Host {
             }
 
             let source = match &original_path {
-                Some(original) if !original.is_empty() => paths::resolve_lexical(Path::new(original)),
+                // Layout v2 stores this relative to the source root; older rows are
+                // absolute. `unwrap_or_default()` keeps the "cannot place it" case
+                // empty, which the `inside` check below refuses.
+                Some(original) if !original.is_empty() => storage_core::layout::resolve_stored_path(
+                    self.source_root.as_deref(),
+                    original,
+                )
+                .unwrap_or_default(),
                 // Same assumption as Node: without an `original_path` the file is
                 // <source root>/<work title>/<logical path>. Using only the logical
                 // path deleted nothing (and still reported success) for such rows.
@@ -1675,7 +1967,9 @@ impl Host {
         let Some(source) = &self.source_root else {
             return Ok(json!({ "removed": 0, "works": 0 }));
         };
-        let requested = normalize_relative(work_root.to_string());
+        // Same rule as every other source-relative input: a bare work root maps
+        // under its type directory, an already-prefixed one passes through.
+        let requested = storage_core::layout::normalize_source_relative(&normalize_relative(work_root.to_string()));
         let mut roots: Vec<PathBuf> = Vec::new();
         if !requested.is_empty() {
             let root = paths::resolve_lexical(&source.join(requested.replace('/', std::path::MAIN_SEPARATOR_STR)));
@@ -1685,9 +1979,25 @@ impl Host {
             roots.push(root);
         } else if let Ok(children) = std::fs::read_dir(source) {
             for child in children.flatten() {
-                if child.file_type().map(|kind| kind.is_dir()).unwrap_or(false) {
-                    roots.push(child.path());
+                if !child.file_type().map(|kind| kind.is_dir()).unwrap_or(false) {
+                    continue;
                 }
+                // Layout v2 keeps works one level down (`voices/<work>`); the
+                // category containers themselves are not works and have no staging.
+                let name = child.file_name().to_string_lossy().to_string();
+                if [storage_core::layout::VOICES, storage_core::layout::VIDEOS, storage_core::layout::CREATIONS]
+                    .contains(&name.as_str())
+                {
+                    if let Ok(type_children) = std::fs::read_dir(child.path()) {
+                        for nested in type_children.flatten() {
+                            if nested.file_type().map(|kind| kind.is_dir()).unwrap_or(false) {
+                                roots.push(nested.path());
+                            }
+                        }
+                    }
+                    continue;
+                }
+                roots.push(child.path());
             }
         }
         let mut removed = 0usize;
@@ -1750,7 +2060,18 @@ impl Host {
                         .collect()
                 })
                 .unwrap_or_default();
-            let missing = paths_list.iter().filter(|path| !Path::new(path).exists()).count();
+            // Snapshot paths are source-root relative since phase 2a (absolute in
+            // older snapshots). Testing the raw string made every work look stale:
+            // a relative path is resolved against the process cwd, which never
+            // holds the file.
+            let missing = paths_list
+                .iter()
+                .filter(|path| {
+                    storage_core::layout::resolve_stored_path(self.source_root.as_deref(), path)
+                        .map(|resolved| !resolved.exists())
+                        .unwrap_or(true)
+                })
+                .count();
             if !paths_list.is_empty() && missing == paths_list.len() {
                 stale.push(json!({
                     "workId": work_id,
@@ -1923,6 +2244,7 @@ impl Host {
             &candidate,
             Some(&format!("local:bundle:{root_name}")),
             &self.allowed_source_roots,
+            &source_root,
         )?;
         let work_id = outcome
             .work
@@ -2129,11 +2451,11 @@ impl Host {
                 let _ = std::fs::remove_dir_all(&source);
             }
         }
-        // A rename must rewrite every entry/source-snapshot absolute path, or
-        // delete/restore/reconcile still points at the old folder.
+        // A rename must rewrite every entry/source-snapshot path, or
+        // delete/restore/reconcile still points at the old folder. The rewrite goes
+        // through the layout helper so a v1 absolute row comes out in the v2
+        // relative form instead of re-pinning the folder it just left.
         if source != target {
-            let old_prefix = source.to_string_lossy().replace('\\', "/");
-            let new_prefix = target.to_string_lossy().replace('\\', "/");
             let entries: Vec<(String, String)> = {
                 let mut statement = self
                     .library
@@ -2145,12 +2467,9 @@ impl Host {
                 rows
             };
             for (entry_id, original) in entries {
-                let normalized = original.replace('\\', "/");
-                if !normalized.starts_with(&old_prefix) {
+                let Some(next) = storage_core::layout::relocated_stored_path(&source_root, &original, &source, &target) else {
                     continue;
-                }
-                let suffix = normalized[old_prefix.len()..].trim_start_matches('/');
-                let next = format!("{new_prefix}/{suffix}");
+                };
                 self.library.connection.execute(
                     "UPDATE entry SET original_path = ? WHERE entry_id = ?",
                     rusqlite::params![next, entry_id],
@@ -2175,13 +2494,11 @@ impl Host {
                 };
                 for entry in entries.iter_mut() {
                     let Some(path) = entry.get("sourcePath").and_then(Value::as_str) else { continue };
-                    let normalized = path.replace('\\', "/");
-                    if !normalized.starts_with(&old_prefix) {
+                    let Some(next) = storage_core::layout::relocated_stored_path(&source_root, path, &source, &target) else {
                         continue;
-                    }
-                    let suffix = normalized[old_prefix.len()..].trim_start_matches('/');
+                    };
                     if let Some(object) = entry.as_object_mut() {
-                        object.insert("sourcePath".to_string(), json!(format!("{new_prefix}/{suffix}")));
+                        object.insert("sourcePath".to_string(), json!(next));
                     }
                 }
                 self.library.connection.execute(
@@ -2364,9 +2681,21 @@ impl Host {
                 "message": format!("处理 {candidate_id}"),
             }))?;
             self.progress(&batch_id).event(&format!("candidate started: {candidate_id}"), &json!({ "candidateId": candidate_id }))?;
-            let outcome = match candidate_from_preview(candidate_value, self.last_scan_root.as_deref()) {
-                Some(candidate) => ingest::ingest_candidate(&mut self.library, &candidate, Some(&key), &self.allowed_source_roots),
-                None => Err(Error::new("candidate is not importable (missing root/entries)")),
+            // The stored entry paths are source-root relative, so a host without a
+            // source root cannot say where the candidate's files belong; report it
+            // per candidate instead of guessing a root (a wrong one would either
+            // pin machine paths again or relativise against the data folder).
+            let source_root = self.source_root.clone();
+            let outcome = match (candidate_from_preview(candidate_value, self.last_scan_root.as_deref()), source_root) {
+                (Some(candidate), Some(source_root)) => ingest::ingest_candidate(
+                    &mut self.library,
+                    &candidate,
+                    Some(&key),
+                    &self.allowed_source_roots,
+                    &source_root,
+                ),
+                (Some(_), None) => Err(Error::path_denied("source is not configured on this host")),
+                (None, _) => Err(Error::new("candidate is not importable (missing root/entries)")),
             };
                 match outcome {
                 Ok(outcome) => {
@@ -2603,6 +2932,8 @@ impl Host {
             if relative.starts_with('/') || relative.split('/').any(|part| part == "..") {
                 return Err(Error::path_denied("relativeRoot escapes the source root"));
             }
+            // The caller speaks bare paths; the layout decides the type directory.
+            let relative = storage_core::layout::normalize_source_relative(&relative);
             scan_root = paths::resolve_lexical(&source.join(relative.replace('/', std::path::MAIN_SEPARATOR_STR)));
             if !paths::is_inside(&source, &scan_root) {
                 return Err(Error::path_denied("relativeRoot escapes the source root"));
@@ -2934,6 +3265,77 @@ mod tests {
         assert_eq!(normalize_relative("/a/b/".to_string()), "a/b");
     }
 
+    /// Wiring test for the layout migration: `Host::open` is the only place that
+    /// knows both roots, so it is what has to move legacy creation attachments
+    /// out of the library root and into the readable source tree. The storage-core
+    /// test proves the move; this proves it is actually called on open.
+    #[test]
+    fn open_moves_legacy_creation_attachments_into_the_source_tree() {
+        use storage_core::creations;
+
+        let base = std::env::temp_dir().join(format!("mono-host-creations-{}", uuid::Uuid::new_v4()));
+        let library_root = base.join("lib");
+        let source = base.join("source");
+        std::fs::create_dir_all(&source).unwrap();
+        {
+            let library = storage_core::Library::open(
+                &library_root,
+                storage_core::OpenOptions {
+                    create: true,
+                    allow_outside_root: true,
+                    experiment_root: None,
+                    snapshot_fault: None,
+                },
+            )
+            .unwrap();
+            creations::save_post(
+                &library.connection,
+                &serde_json::json!({
+                    "id": "p1",
+                    "title": "Old Post",
+                    "provider": "Patreon",
+                    "creator": "C",
+                    "date": "2026-02-10"
+                }),
+            )
+            .unwrap();
+            // The pre-migration shape: an opaque post-key folder in the library
+            // root, addressed by a library-root-relative `rel_path`.
+            let key = storage_core::hash::sha256_text("p1");
+            let folder = library.root.join("creations").join(&key);
+            std::fs::create_dir_all(&folder).unwrap();
+            std::fs::write(folder.join("asset-1"), b"old").unwrap();
+            library
+                .connection
+                .execute(
+                    "INSERT INTO creation_asset(asset_id, post_id, attachment_id, role, name, mime, bytes, sha256, rel_path, created_at)
+                     VALUES ('asset-1', 'p1', 'att-1', 'original', 'a.png', 'image/png', 3, 'x', ?1, '2026-01-01T00:00:00Z')",
+                    rusqlite::params![format!("creations/{key}/asset-1")],
+                )
+                .unwrap();
+        }
+
+        let host = Host::open(HostOptions {
+            library_root: library_root.clone(),
+            source_root: Some(source.clone()),
+            allowed_source_roots: vec![source.clone()],
+            allow_outside_root: true,
+            experiment_root: None,
+            snapshot_fault: None,
+        })
+        .unwrap();
+
+        let rel: String = host
+            .library
+            .connection
+            .query_row("SELECT rel_path FROM creation_asset WHERE asset_id = 'asset-1'", [], |row| row.get(0))
+            .unwrap();
+        assert_eq!(rel, "creations/Patreon/C/2026-02-10 Old Post [p1]/asset-1.png");
+        assert_eq!(std::fs::read(source.join(&rel)).unwrap(), b"old");
+        drop(host);
+        let _ = std::fs::remove_dir_all(&base);
+    }
+
     #[test]
     fn backup_paths_are_confined_to_the_experiment_root() {
         let base = std::env::temp_dir().join(format!("mono-host-exp-{}", uuid::Uuid::new_v4()));
@@ -2964,11 +3366,11 @@ mod tests {
     }
 
     #[test]
-    fn delete_works_removes_the_readable_folder_and_the_row() {
-        // Deleting a work from the UI has to leave nothing behind: the folder in
-        // the readable library and the `work` row both disappear. A folder left on
-        // disk makes "delete" look broken while the library still lists nothing,
-        // and a row left behind makes the next import report "already there".
+    fn delete_works_moves_the_folder_to_the_trash_and_restore_brings_it_back() {
+        // Deleting a work from the UI moves its folder out of the readable
+        // library and hides the row. Both must be reversible: the folder sits
+        // under `trash/<work id>/` with a manifest, and restore is a rename —
+        // no re-import, no metadata loss.
         let base = std::env::temp_dir().join(format!("mono-host-del-work-{}", uuid::Uuid::new_v4()));
         let source_root = base.join("source");
         let work_root = source_root.join("[RJ900321] Delete Work");
@@ -2991,21 +3393,200 @@ mod tests {
             }))
             .unwrap();
         let work_id = imported["workId"].as_str().unwrap().to_string();
+        // The host owns the folder layout: a bare `workRoot` is stored under its
+        // type directory, so the folder the test pre-created is not where the
+        // work ends up. Resolve the real root through the snapshot.
+        let work_root = host.work_root_for_work(&work_id).unwrap().expect("imported work has a root");
+        assert!(work_root.join("01.wav").exists(), "the imported file is under the resolved root");
         let result = host.delete_works(&[work_id.clone()]).unwrap();
         assert_eq!(result["works"][0]["ok"], true, "{result}");
-        assert!(!work_root.exists(), "the readable work folder is removed");
-        let rows: i64 = host
+        assert_eq!(result["works"][0]["trashed"], true, "{result}");
+        assert!(!work_root.exists(), "the readable work folder leaves the source root");
+        let slot = storage_core::trash::slot(&host.library.data_root, &work_id).unwrap();
+        let trashed = slot.join("[RJ900321] Delete Work").join("01.wav");
+        assert!(trashed.exists(), "the bytes are in the trash slot");
+        let entries = host.list_trash().unwrap();
+        assert_eq!(entries["total"], 1, "{entries}");
+        assert_eq!(entries["entries"][0]["originalRoot"], "voices/[RJ900321] Delete Work");
+        let hidden: i64 = host
             .library
             .connection
-            .query_row("SELECT COUNT(*) FROM work WHERE work_id = ?", rusqlite::params![work_id], |row| row.get(0))
+            .query_row(
+                "SELECT COUNT(*) FROM work WHERE work_id = ? AND deleted_at IS NULL",
+                rusqlite::params![work_id],
+                |row| row.get(0),
+            )
             .unwrap();
-        assert_eq!(rows, 0, "the work row is purged, not merely soft-deleted");
+        assert_eq!(hidden, 0, "the work no longer appears in the library");
+
+        let restored = host.restore_works(&[work_id.clone()]).unwrap();
+        assert_eq!(restored["restored"], 1, "{restored}");
+        assert_eq!(restored["works"][0]["moved"], true, "{restored}");
+        assert!(work_root.join("01.wav").exists(), "restore puts the folder back: {restored}");
+        let visible: i64 = host
+            .library
+            .connection
+            .query_row(
+                "SELECT COUNT(*) FROM work WHERE work_id = ? AND deleted_at IS NULL",
+                rusqlite::params![work_id],
+                |row| row.get(0),
+            )
+            .unwrap();
+        assert_eq!(visible, 1, "restore clears deleted_at");
+        assert_eq!(host.list_trash().unwrap()["total"], 0, "the slot is consumed");
+
         // Node answers `ok: true, deleted: false` for an id it does not own; the
         // request succeeded, nothing was there. The wire contract stays identical,
         // so the caller — not the host — decides whether that is an error.
         let again = host.delete_works(&[work_id]).unwrap();
         assert_eq!(again["works"][0]["ok"], true, "{again}");
-        assert_eq!(again["works"][0]["deleted"], false, "{again}");
+        assert_eq!(again["works"][0]["deleted"], true, "{again}");
+        // A second delete of an already-trashed work is the no-op case.
+        let noop = host.delete_works(&[String::from("00000000-0000-0000-0000-000000000000")]).unwrap();
+        assert_eq!(noop["works"][0]["ok"], true, "{noop}");
+        assert_eq!(noop["works"][0]["deleted"], false, "{noop}");
+        drop(host);
+        let _ = std::fs::remove_dir_all(base);
+    }
+
+    /// A batch import has to know the source root to store entry paths relative to
+    /// it. Without one the candidate fails with EPATHDENIED instead of being
+    /// imported against a guessed root — a guess would either pin machine paths or
+    /// relativise against the data folder and point at nothing.
+    #[test]
+    fn batch_import_without_a_source_root_reports_the_candidate_instead_of_guessing() {
+        let base = std::env::temp_dir().join(format!("mono-host-nosource-{}", uuid::Uuid::new_v4()));
+        let work_root = base.join("work");
+        std::fs::create_dir_all(&work_root).unwrap();
+        std::fs::write(work_root.join("01.mp3"), b"no-source").unwrap();
+        let mut host = Host::open(HostOptions {
+            library_root: base.join("lib"),
+            source_root: None,
+            allowed_source_roots: Vec::new(),
+            allow_outside_root: true,
+            experiment_root: None,
+            snapshot_fault: None,
+        })
+        .unwrap();
+        let preview = json!({ "candidates": [{
+            "candidateId": "local:work",
+            "relativeRoot": "work",
+            "rootPath": work_root.to_string_lossy(),
+            "entries": [{ "logicalPath": "01.mp3", "absolutePath": work_root.join("01.mp3").to_string_lossy() }],
+        }] });
+        let result = host
+            .import_candidates_with(&preview, &["local:work".to_string()], &ImportOptions::default())
+            .unwrap();
+        assert_eq!(result["results"][0]["ok"], false, "{result}");
+        assert_eq!(result["results"][0]["code"], "EPATHDENIED", "{result}");
+        let works: i64 = host
+            .library
+            .connection
+            .query_row("SELECT COUNT(*) FROM work", [], |row| row.get(0))
+            .unwrap();
+        assert_eq!(works, 0, "nothing was imported");
+        drop(host);
+        let _ = std::fs::remove_dir_all(base);
+    }
+
+    /// `cleanupPreview` decides "stale" by whether the recorded files still exist.
+    /// Since phase 2a those records are source-root relative, so the check has to
+    /// resolve them: testing the raw string resolved it against the process cwd and
+    /// reported every work as stale.
+    #[test]
+    fn cleanup_preview_resolves_the_stored_source_paths() {
+        let base = std::env::temp_dir().join(format!("mono-host-cleanup-{}", uuid::Uuid::new_v4()));
+        let source_root = base.join("source");
+        let work_root = source_root.join("voices").join("[RJ09000012] Cleanup");
+        std::fs::create_dir_all(&work_root).unwrap();
+        std::fs::write(work_root.join("01.wav"), b"cleanup").unwrap();
+        let mut host = Host::open(HostOptions {
+            library_root: base.join("lib"),
+            source_root: Some(source_root.clone()),
+            allowed_source_roots: vec![source_root.clone()],
+            allow_outside_root: true,
+            experiment_root: None,
+            snapshot_fault: None,
+        })
+        .unwrap();
+        host.import_file(&json!({
+            "relativePath": "[RJ09000012] Cleanup/01.wav",
+            "workRoot": "[RJ09000012] Cleanup",
+            "metadata": { "title": "Cleanup", "sourceCode": "RJ09000012" },
+        }))
+        .unwrap();
+        let preview = host.cleanup_preview().unwrap();
+        assert_eq!(preview["total"], 0, "a work whose files exist is not stale: {preview}");
+
+        std::fs::remove_file(work_root.join("01.wav")).unwrap();
+        let preview = host.cleanup_preview().unwrap();
+        assert_eq!(preview["total"], 1, "{preview}");
+        assert_eq!(preview["works"][0]["missing"], 1, "{preview}");
+        drop(host);
+        let _ = std::fs::remove_dir_all(base);
+    }
+
+    /// Purge has to remove the *bytes* an entry points at, and after phase 2a that
+    /// pointer is relative. A file that sits outside the work root is the case that
+    /// catches a raw-path comparison. Delete alone must not touch it — delete is
+    /// reversible now — so the sweep is asserted on the purge that follows.
+    #[test]
+    fn purge_resolves_a_relative_entry_file_outside_the_work_root() {
+        let base = std::env::temp_dir().join(format!("mono-host-purge-{}", uuid::Uuid::new_v4()));
+        let source_root = base.join("source");
+        let work_root = source_root.join("voices").join("[RJ09000011] Purge");
+        std::fs::create_dir_all(&work_root).unwrap();
+        std::fs::write(work_root.join("01.wav"), b"purge-me").unwrap();
+        let mut host = Host::open(HostOptions {
+            library_root: base.join("lib"),
+            source_root: Some(source_root.clone()),
+            allowed_source_roots: vec![source_root.clone()],
+            allow_outside_root: true,
+            experiment_root: None,
+            snapshot_fault: None,
+        })
+        .unwrap();
+        let imported = host
+            .import_file(&json!({
+                "relativePath": "[RJ09000011] Purge/01.wav",
+                "workRoot": "[RJ09000011] Purge",
+                "metadata": { "title": "Purge", "sourceCode": "RJ09000011" },
+            }))
+            .unwrap();
+        let work_id = imported["workId"].as_str().unwrap().to_string();
+        assert_eq!(host.work_root_for_work(&work_id).unwrap().as_deref(), Some(work_root.as_path()));
+
+        // The user moved the file out of the work folder but kept it in the source
+        // root; the stored value follows (and stays relative).
+        let outer = source_root.join("loose").join("01.wav");
+        std::fs::create_dir_all(outer.parent().unwrap()).unwrap();
+        std::fs::rename(work_root.join("01.wav"), &outer).unwrap();
+        let unrelated = source_root.join("loose").join("keep.wav");
+        std::fs::write(&unrelated, b"not ours").unwrap();
+        host.library
+            .connection
+            .execute(
+                "UPDATE entry SET original_path = 'loose/01.wav' WHERE work_id = ?",
+                rusqlite::params![work_id],
+            )
+            .unwrap();
+
+        let result = host.delete_works(&[work_id.clone()]).unwrap();
+        assert_eq!(result["works"][0]["ok"], true, "{result}");
+        assert!(outer.exists(), "delete is reversible: the relocated file stays");
+
+        let purged = host.purge_trash(&[]).unwrap();
+        assert_eq!(purged["purged"], 1, "{purged}");
+        assert!(!outer.exists(), "purge removes the entry's file through its stored path");
+        assert!(unrelated.exists(), "a file no entry points at is not swept");
+        assert!(!work_root.exists(), "the work folder is not resurrected by purge");
+        assert_eq!(host.list_trash().unwrap()["total"], 0, "the slot is gone");
+        let rows: i64 = host
+            .library
+            .connection
+            .query_row("SELECT COUNT(*) FROM work WHERE work_id = ?", rusqlite::params![work_id], |row| row.get(0))
+            .unwrap();
+        assert_eq!(rows, 0, "purge removes the row");
         drop(host);
         let _ = std::fs::remove_dir_all(base);
     }
@@ -3092,7 +3673,7 @@ mod tests {
     fn cross_edition_download_is_deduped_by_the_per_file_import() {
         let base = std::env::temp_dir().join(format!("mono-host-dedupe-{}", uuid::Uuid::new_v4()));
         let source_root = base.join("source");
-        let work_root = source_root.join("[RJ09000001] Dedupe");
+        let work_root = source_root.join("voices").join("[RJ09000001] Dedupe");
         std::fs::create_dir_all(&work_root).unwrap();
         let mut host = Host::open(HostOptions {
             library_root: base.join("lib"),
@@ -3165,6 +3746,62 @@ mod tests {
         let _ = std::fs::remove_dir_all(base);
     }
 
+    /// Phase 2a, end to end through the real entry point: the row and the snapshot
+    /// keep a source-root relative path (so the library survives a move), and the
+    /// delete path resolves that value instead of treating it as absolute. Getting
+    /// the second half wrong is silent: the call still reports success while the
+    /// bytes stay on disk.
+    #[test]
+    fn per_file_import_stores_a_relative_path_that_delete_can_resolve() {
+        let base = std::env::temp_dir().join(format!("mono-host-relative-{}", uuid::Uuid::new_v4()));
+        let source_root = base.join("source");
+        let work_root = source_root.join("voices").join("[RJ09000010] Relative");
+        std::fs::create_dir_all(work_root.join("mp3")).unwrap();
+        std::fs::write(work_root.join("mp3/01.mp3"), b"relative-audio").unwrap();
+        let mut host = Host::open(HostOptions {
+            library_root: base.join("lib"),
+            source_root: Some(source_root.clone()),
+            allowed_source_roots: vec![source_root.clone()],
+            allow_outside_root: true,
+            experiment_root: None,
+            snapshot_fault: None,
+        })
+        .unwrap();
+        let imported = host
+            .import_file(&json!({
+                "relativePath": "[RJ09000010] Relative/mp3/01.mp3",
+                "workRoot": "[RJ09000010] Relative",
+                "metadata": { "title": "Relative", "sourceCode": "RJ09000010" },
+            }))
+            .unwrap();
+        let work_id = imported["workId"].as_str().unwrap().to_string();
+
+        let original: String = host
+            .library
+            .connection
+            .query_row("SELECT original_path FROM entry LIMIT 1", [], |row| row.get(0))
+            .unwrap();
+        assert_eq!(original, "voices/[RJ09000010] Relative/mp3/01.mp3");
+        let snapshot: String = host
+            .library
+            .connection
+            .query_row("SELECT snapshot_json FROM source_ref LIMIT 1", [], |row| row.get(0))
+            .unwrap();
+        assert!(
+            snapshot.contains("\"sourcePath\":\"voices/[RJ09000010] Relative/mp3/01.mp3\""),
+            "{snapshot}"
+        );
+
+        // The relative value is what delete-files has to resolve; a raw
+        // `Path::new("voices/…")` check fails the "inside the source root" test and
+        // silently skips the unlink.
+        let result = host.delete_work_files(&work_id, &["mp3/01.mp3".to_string()]).unwrap();
+        assert_eq!(result["count"], 1, "{result}");
+        assert!(!work_root.join("mp3/01.mp3").exists(), "the bytes are removed, not only the row");
+        drop(host);
+        let _ = std::fs::remove_dir_all(base);
+    }
+
     /// The edition-tagged manifest rows the frontend writes afterwards must keep
     /// the alias (not resurrect the deleted copy) and the cover must never be
     /// treated as a duplicate of anything.
@@ -3172,7 +3809,7 @@ mod tests {
     fn dedupe_keeps_covers_and_sidecars() {
         let base = std::env::temp_dir().join(format!("mono-host-cover-{}", uuid::Uuid::new_v4()));
         let source_root = base.join("source");
-        let work_root = source_root.join("[RJ09000004] Cover");
+        let work_root = source_root.join("voices").join("[RJ09000004] Cover");
         std::fs::create_dir_all(work_root.join("cover")).unwrap();
         std::fs::create_dir_all(work_root.join(".monochrome")).unwrap();
         // Same bytes on purpose: covers are excluded from content dedupe.
@@ -3212,7 +3849,7 @@ mod tests {
     fn manifest_write_after_first_edition_dedupes_the_second() {
         let base = std::env::temp_dir().join(format!("mono-host-manifest-{}", uuid::Uuid::new_v4()));
         let source_root = base.join("source");
-        let work_root = source_root.join("[RJ09000005] Write");
+        let work_root = source_root.join("voices").join("[RJ09000005] Write");
         std::fs::create_dir_all(work_root.join("ja/mp3")).unwrap();
         std::fs::write(work_root.join("ja/mp3/01.mp3"), vec![5u8; 4096]).unwrap();
         let mut host = Host::open(HostOptions {
@@ -3283,7 +3920,7 @@ mod tests {
     fn same_path_rows_are_not_aliased_to_each_other() {
         let base = std::env::temp_dir().join(format!("mono-host-samepath-{}", uuid::Uuid::new_v4()));
         let source_root = base.join("source");
-        let work_root = source_root.join("[RJ09000003] Same");
+        let work_root = source_root.join("voices").join("[RJ09000003] Same");
         std::fs::create_dir_all(work_root.join("mp3")).unwrap();
         std::fs::write(work_root.join("mp3/01.mp3"), vec![3u8; 2048]).unwrap();
         let mut host = Host::open(HostOptions {

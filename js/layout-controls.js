@@ -13,7 +13,11 @@ const FRAMES = [
     { frame: '#page-creations .creations-page', view: '#creations-feed-view' },
     { frame: '#page-creations .creation-detail', view: '#creations-detail-view' },
     { frame: '#page-voices .voices-page', view: '#voices-list-view' },
-    { frame: '#page-videos .videos-page', view: '#videos-list-view' }
+    { frame: '#page-videos .videos-page', view: '#videos-list-view' },
+    // Trash has no detail view, so its view is the list's own container: the
+    // width handle must appear on this page too (docs/17 §3), and a page that is
+    // missing from this table silently loses it.
+    { frame: '#page-trash .trash-page', view: '#page-trash' }
 ];
 
 function readStoredWidth() {

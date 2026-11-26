@@ -32,9 +32,12 @@ const STRUCTURAL_NAMES: &[&str] = &[
 ];
 /// `tmp` is here on purpose: the Kikoeru pipeline stages unfinished files in
 /// `<work>/tmp/`, and a scan must never offer them as entries.
+/// The layout-v2 names (`derived`, `staging`, `system`) and the v1 container
+/// (`data`) stay listed so scanning an unmigrated tree cannot pick up internal
+/// state as if it were user content.
 const EXCLUDED_DIR_NAMES: &[&str] = &[
-    "library", "assets", "tmp", "cache", "index", "trash", "exports", "quarantine", ".git", "node_modules",
-    "$recycle.bin", "system volume information",
+    "library", "assets", "tmp", "cache", "index", "trash", "exports", "quarantine", "data", "derived",
+    "staging", "system", ".git", "node_modules", "$recycle.bin", "system volume information",
 ];
 const SYSTEM_FILE_NAMES: &[&str] = &["thumbs.db", "desktop.ini", ".ds_store"];
 const MAX_METADATA_BYTES: usize = 1024 * 1024;
@@ -683,6 +686,20 @@ fn inspect_directory(absolute: &Path, relative: &str, depth: usize, ctx: &mut Co
         }
         info.metadata = Some(metadata);
         break;
+    }
+
+    // `.monochrome/info.json` outranks a metadata file next to the media. It is
+    // the folder's own record, written once at import (or edited by a human, who
+    // sets `manual: true`); a `metadata.json` from a downloader can be stale.
+    // The sidecar directory itself is skipped by the walker, so it has to be
+    // addressed here by name.
+    if let Some(seed) = storage_core::sidecar::read(absolute) {
+        if let Some(metadata) = normalize_metadata(&seed, ".monochrome/info.json") {
+            if let Some(code) = extract_rj(&metadata.source_code) {
+                info.rj_codes.insert(code);
+            }
+            info.metadata = Some(metadata);
+        }
     }
 
     info.audio_count = info.direct_files.iter().filter(|file| file.kind == "audio").count()

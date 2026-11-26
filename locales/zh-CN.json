@@ -15,7 +15,8 @@
     "tauriTest": "Tauri 测试",
     "creations": "创作",
     "voices": "音声",
-    "videos": "视频"
+    "videos": "视频",
+    "trash": "回收站"
   },
   "header": {
     "searchPlaceholder": "搜索歌曲、歌手、专辑…",
@@ -529,6 +530,7 @@
       "label": "版本",
       "importFailed": "版本导入失败"
     },
+    "resizeColumns": "拖动调整音轨与更多作品宽度，双击恢复默认",
     "translator": "翻译者",
     "importHint": "导入 asmr.one / Kikoeru 作品，保留元数据与原始文件层级。",
     "tagPopoverTitle": "全部标签",
@@ -639,10 +641,38 @@
     "deleteSelectedConfirm": "要删除选中的 {{count}} 项吗？只删除本地记录，不删除源站内容。",
     "deleteAllConfirm": "要清空全部 {{count}} 项吗？只删除本地记录，不删除源站内容。",
     "deleted": "已删除",
+    "undo": "撤销",
+    "restored": "已从回收站恢复",
+    "restoreFailed": "恢复失败：回收站里已没有这些作品",
     "clearAll": "清空全部",
-    "deleteSingleConfirmLocal": "要删除《{{title}}》吗？本地文件库记录会被删除，删除后无法恢复。",
-    "deleteSelectedConfirmLocal": "要删除选中的 {{count}} 个本地文件库作品吗？删除后无法恢复。",
-    "deleteAllConfirmLocal": "要清空全部 {{count}} 个作品吗？本地文件库内容删除后无法恢复。"
+    "deleteSingleConfirmLocal": "要删除《{{title}}》吗？文件夹会移到本地回收站，可以恢复。",
+    "deleteSelectedConfirmLocal": "要删除选中的 {{count}} 个本地文件库作品吗？文件夹会移到本地回收站，可以恢复。",
+    "deleteAllConfirmLocal": "要清空全部 {{count}} 个作品吗？本地文件库文件夹会移到回收站，可以恢复。"
+  },
+  "trash": {
+    "title": "回收站",
+    "hint": "删除的作品先放在这里。恢复会把文件夹搬回原来的位置。",
+    "refresh": "刷新",
+    "emptyAll": "清空回收站",
+    "emptyTitle": "回收站是空的",
+    "emptyHint": "从库里删除的作品会出现在这里。",
+    "restore": "恢复",
+    "restoreSelected": "恢复所选",
+    "deleteForever": "彻底删除",
+    "untitled": "未命名作品",
+    "originUnknown": "没有记录原始位置",
+    "notMoved": "文件夹留在原位",
+    "filesGone": "文件已不存在",
+    "loading": "正在读取回收站…",
+    "loadFailed": "读取回收站失败",
+    "hostUnavailable": "文件库未连接",
+    "restoring": "正在恢复…",
+    "restored": "已恢复",
+    "restoreFailed": "恢复失败",
+    "purging": "正在清空…",
+    "purged": "已彻底删除",
+    "purgeFailed": "彻底删除失败",
+    "purgeConfirm": "{{scope}}：文件将被永久移除，无法恢复。确定继续吗？"
   },
   "coverTheme": {
     "settingLabel": "跟随封面配色",

@@ -1872,6 +1872,12 @@
                                     <span data-i18n="nav.videos">Videos</span>
                                 </a>
                             </li>
+                            <li class="nav-item" id="sidebar-nav-trash">
+                                <a href="/trash">
+                                    <use svg="!lucide/trash-2.svg" size="24" />
+                                    <span data-i18n="nav.trash">Trash</span>
+                                </a>
+                            </li>
                         </ul>
                     </nav>
                     <div class="sidebar-bottom-container">
@@ -6801,6 +6807,55 @@
                         <section id="videos-detail-view" hidden>
                             <div id="videos-detail"></div>
                         </section>
+                    </div>
+                </div>
+                <div id="page-trash" class="page">
+                    <div class="trash-page">
+                        <header class="voices-header trash-header">
+                            <div>
+                                <div class="voices-library-heading">
+                                    <h1 class="section-title" data-i18n="trash.title">Trash</h1>
+                                    <span id="trash-total" class="voices-library-total"></span>
+                                </div>
+                                <p class="trash-hint" data-i18n="trash.hint">
+                                    Deleted works wait here. Restoring puts the folder back where it was.
+                                </p>
+                            </div>
+                            <div class="voices-header-actions">
+                                <button id="trash-refresh" class="btn btn-secondary" type="button" data-i18n="trash.refresh">
+                                    Refresh
+                                </button>
+                                <button
+                                    id="trash-empty"
+                                    class="btn btn-secondary creation-delete-btn"
+                                    type="button"
+                                    data-i18n="trash.emptyAll"
+                                    disabled
+                                >
+                                    Empty trash
+                                </button>
+                            </div>
+                        </header>
+                        <p id="trash-status" class="voices-import-status ui-state" data-state="idle" role="status" aria-live="polite" hidden></p>
+                        <div id="trash-selection-bar" class="creations-selection-bar" hidden>
+                            <span id="trash-selected-count" class="creations-selection-count">0 selected</span>
+                            <div class="creations-selection-actions">
+                                <button id="trash-select-all" class="btn btn-secondary" type="button" data-i18n="selection.selectAll">
+                                    Select all
+                                </button>
+                                <button id="trash-restore-selected" class="btn btn-primary" type="button" data-i18n="trash.restoreSelected" disabled>
+                                    Restore selected
+                                </button>
+                                <button id="trash-cancel-selection" class="btn btn-secondary" type="button" data-i18n="selection.cancel">
+                                    Cancel
+                                </button>
+                            </div>
+                        </div>
+                        <div id="trash-list" class="trash-list" role="list"></div>
+                        <div id="trash-empty-state" class="voices-empty ui-state ui-state--empty" hidden>
+                            <h2 data-i18n="trash.emptyTitle">The trash is empty</h2>
+                            <p data-i18n="trash.emptyHint">Works you delete from the library show up here.</p>
+                        </div>
                     </div>
                 </div>
                 <div id="page-voices" class="page">

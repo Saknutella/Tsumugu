@@ -1104,6 +1104,7 @@ async function deleteVoices(ids, singleTitle = '') {
     const bridge = globalThis.__monochromeFileStorage;
     let folderLeft = 0;
     let unresolved = [];
+    let deletedIds = [];
     if (typeof bridge?.deleteWorks === 'function') {
         try {
             const result = await bridge.deleteWorks(ids.map((id) => {
@@ -1112,6 +1113,7 @@ async function deleteVoices(ids, singleTitle = '') {
             }));
             folderLeft = Number(result?.folderLeft) || 0;
             unresolved = Array.isArray(result?.unresolved) ? result.unresolved : [];
+            deletedIds = Array.isArray(result?.ids) ? result.ids : [];
         } catch (error) {
             console.error('file storage delete failed', error);
             showNotification(`文件库删除失败: ${error?.message || error}`);
@@ -1146,7 +1148,43 @@ async function deleteVoices(ids, singleTitle = '') {
     persistWorks();
     if (document.getElementById('page-album')?.dataset.voiceWorkId || document.getElementById('voices-detail-view')?.hidden === false) navigate('/voices');
     else renderList();
-    showNotification(t('selection.deleted'));
+    offerTrashUndo(deletedIds, selectedWorks);
+}
+
+/**
+ * Tell the user the works are recoverable, and make that a real button.
+ *
+ * Deleting now moves the folder to `trash/` and only soft-deletes the row, so an
+ * undo is a rename back — but the card is already gone from this view, and an
+ * undo the user has to look up in a terminal is not an undo. The tombstone has to
+ * be cleared too, otherwise the next bundle migration would treat the restored
+ * work as deleted again.
+ */
+function offerTrashUndo(deletedIds, deletedWorks) {
+    const bridge = globalThis.__monochromeFileStorage;
+    if (!Array.isArray(deletedIds) || deletedIds.length === 0 || typeof bridge?.restoreWorks !== 'function') {
+        showNotification(t('selection.deleted'));
+        return;
+    }
+    showNotification(t('selection.deleted'), {
+        action: {
+            label: t('selection.undo'),
+            onClick: async () => {
+                const result = await bridge.restoreWorks(deletedIds);
+                if ((Number(result?.restored) || 0) === 0) {
+                    showNotification(t('selection.restoreFailed'));
+                    return;
+                }
+                for (const work of deletedWorks || []) clearVoiceDeleted(work);
+                // `restoreWorks` refreshed the host slice; rebuild this list from it
+                // so the cards come back without a page reload.
+                loadWorks();
+                renderList();
+                persistWorks();
+                showNotification(t('selection.restored'));
+            },
+        },
+    });
 }
 
 function deleteSelectedVoices() {
@@ -1158,6 +1196,7 @@ async function clearAllVoices() {
     const fileWorks = works.filter((work) => work.fileStorage);
     const confirmKey = fileWorks.length > 0 ? 'selection.deleteAllConfirmLocal' : 'selection.deleteAllConfirm';
     if (!window.confirm(t(confirmKey, { count: works.length }))) return;
+    let deletedIds = [];
     if (fileWorks.length > 0) {
         const bridge = globalThis.__monochromeFileStorage;
         if (typeof bridge?.deleteWorks !== 'function') {
@@ -1165,7 +1204,8 @@ async function clearAllVoices() {
             return;
         }
         try {
-            await bridge.deleteWorks(fileWorks.map((work) => work.storageWorkId || work.id));
+            const result = await bridge.deleteWorks(fileWorks.map((work) => work.storageWorkId || work.id));
+            deletedIds = Array.isArray(result?.ids) ? result.ids : [];
         } catch (error) {
             console.error('file storage clear failed', error);
             showNotification(`文件库删除失败: ${error?.message || error}`);
@@ -1188,7 +1228,9 @@ async function clearAllVoices() {
     writeVoiceFiltersToUrl();
     persistWorks();
     renderList();
-    showNotification(t('selection.deleted'));
+    // Clear-all does not tombstone (it empties the view, it does not hide the
+    // online records), so the undo only has to restore the host rows.
+    offerTrashUndo(deletedIds, []);
 }
 
 function voiceFilterUnique(values) {

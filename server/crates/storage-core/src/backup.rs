@@ -58,17 +58,41 @@ fn coded(code: &'static str, message: impl Into<String>) -> Error {
 }
 
 /// `data/<relPath>` with traversal refused (`dataPath`).
-fn data_path(root: &Path, rel_path: &str) -> Result<PathBuf> {
-    let normalized = rel_path.replace('\\', "/");
-    if normalized.is_empty() || normalized.starts_with('/') || normalized.split('/').any(|part| part == "..") {
-        return Err(Error::new(format!("invalid asset path: {rel_path}")));
+/// Where an asset lives in the **live** library: `<root>/<relPath>`.
+///
+/// `rel_path` already carries its own directory (`derived/sha256/ab/hash`, or the
+/// virtual `source/<sha>`), so the layout decides the path, not this function.
+fn live_asset_path(root: &Path, rel_path: &str) -> Result<PathBuf> {
+    let normalized = validate_asset_rel(rel_path)?;
+    let path = normalized.split('/').fold(root.to_path_buf(), |path, part| path.join(part));
+    if !paths::is_inside(root, &path) {
+        return Err(Error::new(format!("asset path escapes root: {rel_path}")));
     }
-    let data = root.join("data");
+    Ok(path)
+}
+
+/// Where an asset lives inside a **backup archive**: `<dir>/data/<relPath>`.
+///
+/// The archive keeps its own `data/` level even though the live library no longer
+/// has one: backups written before layout v2 store their database there, and a
+/// restore must keep working for them. The archive format is versioned separately
+/// from the live layout for exactly this reason.
+fn archive_asset_path(dir: &Path, rel_path: &str) -> Result<PathBuf> {
+    let normalized = validate_asset_rel(rel_path)?;
+    let data = dir.join("data");
     let path = normalized.split('/').fold(data.clone(), |path, part| path.join(part));
     if !paths::is_inside(&data, &path) {
         return Err(Error::new(format!("asset path escapes root: {rel_path}")));
     }
     Ok(path)
+}
+
+fn validate_asset_rel(rel_path: &str) -> Result<String> {
+    let normalized = rel_path.replace('\\', "/");
+    if normalized.is_empty() || normalized.starts_with('/') || normalized.split('/').any(|part| part == "..") {
+        return Err(Error::new(format!("invalid asset path: {rel_path}")));
+    }
+    Ok(normalized)
 }
 
 fn regular_file(path: &Path) -> Result<std::fs::Metadata> {
@@ -329,8 +353,8 @@ impl Library {
         let mut total_bytes = 0u64;
         if options.include_media {
             for asset in &cas {
-                let result = data_path(&self.root, &asset.rel_path)
-                    .and_then(|source| Ok((source, data_path(&dest, &asset.rel_path)?)))
+                let result = live_asset_path(&self.root, &asset.rel_path)
+                    .and_then(|source| Ok((source, archive_asset_path(&dest, &asset.rel_path)?)))
                     .and_then(|(source, target)| copy_verified(&source, &target, Some((&asset.sha256, asset.bytes))));
                 match result {
                     Ok((sha256, bytes)) => {
@@ -484,7 +508,7 @@ pub fn verify_backup(backup_dir: &Path) -> Value {
             if rel != asset.rel_path {
                 issue(&mut issues, "asset-path-mismatch", json!({ "sha256": asset.sha256, "expected": asset.rel_path, "actual": rel }));
             }
-            match data_path(&dir, rel).and_then(|path| file_facts(&path)) {
+            match archive_asset_path(&dir, rel).and_then(|path| file_facts(&path)) {
                 Ok((sha256, bytes)) => {
                     if entry["sha256"] != sha256 || entry["bytes"].as_u64() != Some(bytes) {
                         issue(&mut issues, "asset-hash-mismatch", json!(rel));
@@ -536,18 +560,24 @@ pub fn restore_library(backup_dir: &Path, empty_root: &Path) -> Result<Value> {
             return Err(coded("ERESTORENOTEMPTY", "restore destination must be empty"));
         }
     }
-    std::fs::create_dir_all(destination.join("data"))?;
+    std::fs::create_dir_all(&destination)?;
     paths::assert_no_reparse(&destination, false)?;
     let manifest = &check["manifest"];
     let db_expected = manifest["data"]["sha256"].as_str().unwrap_or("").to_string();
     let db_bytes = manifest["data"]["bytes"].as_u64().unwrap_or(0);
-    copy_verified(&dir.join("data").join("library.sqlite"), &destination.join("data").join("library.sqlite"), Some((&db_expected, db_bytes)))?;
+    // The archive keeps `<dir>/data/library.sqlite`; the live library puts the
+    // database at its root. Old archives restore unchanged thanks to this split.
+    copy_verified(
+        &dir.join("data").join("library.sqlite"),
+        &destination.join(crate::layout::LIBRARY_SQLITE),
+        Some((&db_expected, db_bytes)),
+    )?;
     for asset in manifest["assets"].as_array().into_iter().flatten() {
         paths::assert_no_reparse(&destination, false)?;
         let rel = asset["relPath"].as_str().unwrap_or("");
         let sha = asset["sha256"].as_str().unwrap_or("");
         let bytes = asset["bytes"].as_u64().unwrap_or(0);
-        copy_verified(&data_path(&dir, rel)?, &data_path(&destination, rel)?, Some((sha, bytes)))?;
+        copy_verified(&archive_asset_path(&dir, rel)?, &live_asset_path(&destination, rel)?, Some((sha, bytes)))?;
     }
     atomic_write_json(
         &destination.join("root.json"),

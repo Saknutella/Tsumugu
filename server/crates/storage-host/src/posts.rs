@@ -20,180 +20,14 @@ use std::path::{Path, PathBuf};
 
 use serde_json::{json, Value};
 use storage_core::error::{Error, Result};
+use storage_core::naming::{category_root, segment, CATEGORY_CREATION, CATEGORY_VIDEO};
+// The naming rule has one implementation (storage-core) because creations now
+// share the same `<type>/<provider>/<creator>/<date title [id]>` tree and must
+// not drift from videos; the re-exports keep this module's public surface.
+pub use storage_core::naming::{post_folder, validated_post_root};
 use storage_core::{jsonutil::now_iso, paths};
 
 use crate::host::Host;
-
-/// Characters Windows refuses in a path segment, plus the separators.
-///
-/// Replacing rather than rejecting keeps a post importable: a title with `?` or a
-/// creator whose name contains `/` must still land somewhere, and the `[id]`
-/// suffix keeps the folder unique after the substitution.
-fn segment(raw: &str, fallback: &str) -> String {
-    let cleaned: String = raw
-        .chars()
-        .map(|ch| match ch {
-            '/' | '\\' | ':' | '*' | '?' | '"' | '<' | '>' | '|' => '_',
-            ch if (ch as u32) < 0x20 => '_',
-            ch => ch,
-        })
-        .collect();
-    // Win32 strips *every* trailing dot and space, so `"x. "` must lose both,
-    // not just the last one; and the trim repeats after truncation because a
-    // cut can expose a new trailing space. Repeating it makes `segment` a fixed
-    // point (`segment(segment(x)) == segment(x)`), which is exactly what
-    // [`validated_post_root`] checks a stored folder against.
-    let trimmed = trim_tail(cleaned.trim_start());
-    if trimmed.is_empty() {
-        return fallback.to_string();
-    }
-    let reserved_safe = reject_reserved(trimmed);
-    // Windows caps a component at 255 UTF-16 units, and a readable folder plus
-    // the `[id]` suffix must still fit under MAX_PATH. 200 characters keeps both
-    // without splitting a multi-byte scalar.
-    let truncated: String = reserved_safe.chars().take(MAX_SEGMENT_CHARS).collect();
-    let truncated = trim_tail(&truncated);
-    if truncated.is_empty() {
-        fallback.to_string()
-    } else {
-        truncated.to_string()
-    }
-}
-
-/// Strip trailing whitespace and dots until neither is left.
-fn trim_tail(value: &str) -> &str {
-    let mut rest = value.trim_end();
-    while let Some(stripped) = rest.strip_suffix('.') {
-        rest = stripped.trim_end();
-    }
-    rest
-}
-
-/// Longest component this module writes; see [`segment`].
-const MAX_SEGMENT_CHARS: usize = 200;
-
-/// Dash a Windows device name instead of refusing the post.
-///
-/// `CON`, `PRN`, `AUX`, `NUL`, `COM1`–`COM9`, `LPT1`–`LPT9` cannot be a file name
-/// on Windows at all (`NUL.txt` included), so a creator literally called `nul`
-/// has to land under a different but recognisable name rather than fail the
-/// import.
-fn reject_reserved(value: &str) -> String {
-    const RESERVED: &[&str] = &[
-        "con", "prn", "aux", "nul", "com1", "com2", "com3", "com4", "com5", "com6", "com7", "com8",
-        "com9", "lpt1", "lpt2", "lpt3", "lpt4", "lpt5", "lpt6", "lpt7", "lpt8", "lpt9",
-    ];
-    let stem = value.split('.').next().unwrap_or(value);
-    if RESERVED.iter().any(|reserved| stem.eq_ignore_ascii_case(reserved)) {
-        format!("_{value}")
-    } else {
-        value.to_string()
-    }
-}
-
-/// `<categoryRoot>/<Provider>/<creator>/<YYYY-MM-DD> <title> [<id>]`
-///
-/// Order is `date title [id]` so a plain directory listing sorts chronologically,
-/// and the id suffix is what makes two posts with the same title distinct.
-pub fn post_folder(
-    category_root: &str,
-    provider: &str,
-    creator: &str,
-    date: &str,
-    title: &str,
-    source_id: &str,
-) -> String {
-    // Take characters, not bytes: a malformed date must not panic on a
-    // multi-byte boundary. Anything shorter than a full day is unusable, so it
-    // becomes an obvious sentinel that sorts first instead of a guessed date.
-    let date: String = if date.chars().count() >= 10 {
-        segment(&date.chars().take(10).collect::<String>(), "0000-00-00")
-    } else {
-        "0000-00-00".to_string()
-    };
-    // The leaf is one path component, so it has to fit the same 200-character
-    // cap as every other segment or `validated_post_root` would refuse the
-    // folder this function just named. The id is what keeps the folder unique,
-    // so it is kept whole (up to 64 chars) and the title absorbs the cut.
-    let id: String = segment(source_id, "unknown").chars().take(64).collect();
-    let id = trim_tail(&id);
-    let id = if id.is_empty() { "unknown".to_string() } else { id.to_string() };
-    let title_budget = MAX_SEGMENT_CHARS.saturating_sub(date.chars().count() + id.chars().count() + 4);
-    let title: String = segment(title, &id).chars().take(title_budget).collect();
-    let title = trim_tail(&title);
-    let title = if title.is_empty() { id.as_str() } else { title };
-    format!(
-        "{}/{}/{}/{} {} [{}]",
-        category_root,
-        segment(provider, "Unknown"),
-        segment(creator, "Unknown"),
-        date,
-        title,
-        id
-    )
-}
-
-pub const CATEGORY_CREATION: &str = "Creations";
-pub const CATEGORY_VIDEO: &str = "Videos";
-
-/// Root directory for a post category, relative to the library root.
-///
-/// Returns a `&'static str` on purpose: the caller stores it in `project.json`
-///-style records and must not be able to invent a third top-level category.
-pub fn category_root(category: &str) -> Result<&'static str> {
-    match category {
-        "creation" => Ok(CATEGORY_CREATION),
-        "video" => Ok(CATEGORY_VIDEO),
-        _ => Err(Error::bad_request("category must be creation or video")),
-    }
-}
-
-/// The folder of a stored post, re-derived from its own `category`/`root_path`.
-///
-/// Trusting `root_path` because "we wrote it" is what C1 exploited: the column
-/// can hold `''`, `'.'`, another post's folder or another category's folder (the
-/// old `import_post` stored whatever the client sent), and `delete_post` turns
-/// the result into `remove_dir_all`. Re-deriving means the only accepted shape
-/// is `<Category>/<Provider>/<Creator>/<Folder>`, every segment exactly what our
-/// own [`segment`] would produce, under the root of the row's own category.
-pub fn validated_post_root(category: &str, root_path: &str) -> Result<String> {
-    let expected_root = category_root(category)?;
-    // `/` only: `\` separators are refused by `validate_component` below, so a
-    // Windows-style stored path fails loudly instead of being silently rewritten
-    // into a different folder.
-    let parts: Vec<&str> = root_path.split('/').collect();
-    if parts.len() != 4 {
-        return Err(Error::path_denied(format!(
-            "post folder must be <Category>/<Provider>/<Creator>/<Folder>: {root_path}"
-        )));
-    }
-    if parts[0] != expected_root {
-        return Err(Error::path_denied(format!(
-            "post folder is not under {expected_root}/: {root_path}"
-        )));
-    }
-    for part in &parts {
-        validate_post_segment(part)?;
-    }
-    Ok(root_path.to_string())
-}
-
-fn validate_post_segment(part: &str) -> Result<()> {
-    if part.is_empty() || part == "." || part == ".." {
-        return Err(Error::path_denied("post folder has an empty or dot segment"));
-    }
-    // Every segment must be a fixed point of our own naming function: that is
-    // the precise statement of "this folder was named by the host", and it
-    // rejects `\`, `:`, trailing dots/spaces and device names in one rule.
-    if segment(part, "") != part {
-        return Err(Error::path_denied(format!("post folder segment is not a host-named segment: {part}")));
-    }
-    // `validate_component` on top: it owns the Windows rules (ADS, reserved
-    // names, length) for the audio side too, so post folders cannot drift from
-    // them. Its error is uncoded, so the code is set here.
-    paths::validate_component(part).map_err(|error| Error::path_denied(error.message))?;
-    Ok(())
-}
 
 /// Validate a post row's folder and resolve it under the source root.
 ///
@@ -252,7 +86,7 @@ pub struct Sidecar {
     pub meta: Value,
 }
 
-/// Write `.monochrome/post.html` and `.monochrome/metadata.json`.
+/// Write `.monochrome/post.html` and `.monochrome/info.json`.
 ///
 /// The body is stored sanitized by the caller (see [`crate::html`]); this
 /// function deliberately does not re-clean it, so the file on disk is exactly
@@ -260,13 +94,19 @@ pub struct Sidecar {
 ///
 /// Both files go through `fsutil::atomic_write` (temp file + rename): a reader
 /// (a second host, the user's editor, a backup job) must never see a half-written
-/// `metadata.json`, and a crash mid-write must not leave the post with an empty
+/// `info.json`, and a crash mid-write must not leave the post with an empty
 /// body file that a later `read_sidecar` would happily return.
+///
+/// `info.json` is write-once. It is the folder's own claim about what it is, and
+/// a re-import must not replace a human's correction; `metadata.json` was
+/// rewritten on every import, which is the second write path that made it
+/// untrustworthy and got it removed from voice works (docs/16 §2.6). The body is
+/// still rewritten because it is derived from the request, not hand-edited.
 pub fn write_sidecar(folder: &Path, body_html: &str, meta: &Value) -> Result<()> {
     let sidecar = folder.join(".monochrome");
     std::fs::create_dir_all(&sidecar)?;
     storage_core::fsutil::atomic_write(&sidecar.join("post.html"), body_html.as_bytes())?;
-    storage_core::fsutil::atomic_write_json(&sidecar.join("metadata.json"), meta)?;
+    storage_core::sidecar::write_if_absent(folder, meta)?;
     Ok(())
 }
 
@@ -274,13 +114,17 @@ pub fn write_sidecar(folder: &Path, body_html: &str, meta: &Value) -> Result<()>
 ///
 /// A missing or unparsable sidecar is not an error: it is a rebuildable cache of
 /// the database row, and failing here would make a half-copied post folder
-/// unreadable instead of merely stale.
+/// unreadable instead of merely stale. `metadata.json` is the pre-info.json name
+/// and is still read so a folder imported before the rename stays readable.
 pub fn read_sidecar(folder: &Path) -> Result<Sidecar> {
     let sidecar = folder.join(".monochrome");
     let body = std::fs::read_to_string(sidecar.join("post.html")).unwrap_or_default();
-    let meta = std::fs::read_to_string(sidecar.join("metadata.json"))
-        .ok()
-        .and_then(|text| serde_json::from_str(&text).ok())
+    let meta = storage_core::sidecar::read(folder)
+        .or_else(|| {
+            std::fs::read_to_string(sidecar.join("metadata.json"))
+                .ok()
+                .and_then(|text| serde_json::from_str(&text).ok())
+        })
         .unwrap_or_else(|| serde_json::json!({}));
     Ok(Sidecar { body, meta })
 }
@@ -313,6 +157,9 @@ fn sidecar_metadata(row: &Value, input: &Value) -> Value {
     let field = |name: &str| row.get(name).cloned().unwrap_or(Value::Null);
     json!({
         "schema": "monochrome-post/1",
+        // Machine-written, and says so: `true` means a human edited the file and
+        // it must outrank the next import request.
+        "manual": false,
         "postId": field("postId"),
         "category": field("category"),
         "provider": field("provider"),
@@ -328,6 +175,45 @@ fn sidecar_metadata(row: &Value, input: &Value) -> Value {
         "creator": creator.unwrap_or(Value::Null),
         "meta": row.get("meta").cloned().unwrap_or_else(|| json!({})),
     })
+}
+
+/// Fill a post import from the folder's own `info.json`.
+///
+/// `manual: true` means a human corrected the file, so it wins over values in the
+/// request. Without it the sidecar only fills gaps — a re-import from a live API
+/// carries fresher data than a file written months ago, and letting the older
+/// copy win would make every import look like it ignored the source.
+///
+/// Only fields the post table actually has are adopted; `rootPath` is the host's
+/// naming decision and is never taken from a file.
+fn seed_post_input(input: &mut Value, seed: &Value) {
+    let manual = storage_core::sidecar::is_manual(seed);
+    let Some(object) = input.as_object_mut() else { return };
+    let mut apply = |key: &str, value: Value| {
+        let empty = match object.get(key) {
+            None | Some(Value::Null) => true,
+            Some(Value::String(text)) => text.trim().is_empty(),
+            Some(Value::Array(items)) => items.is_empty(),
+            _ => false,
+        };
+        if manual || empty {
+            object.insert(key.to_string(), value);
+        }
+    };
+    let title = storage_core::sidecar::text(seed, "title");
+    if !title.is_empty() {
+        apply("title", json!(title));
+    }
+    for key in ["publishedAt", "sourceUrl", "provider", "sourceId"] {
+        let value = storage_core::sidecar::text(seed, key);
+        if !value.is_empty() {
+            apply(key, json!(value));
+        }
+    }
+    let tags = storage_core::sidecar::strings(seed, "tags");
+    if !tags.is_empty() {
+        apply("tags", json!(tags));
+    }
 }
 
 /// Resolve a post-relative path, refusing anything that leaves the folder.
@@ -416,14 +302,45 @@ impl Host {
                 return Err(Error::bad_request("creator.sourceId is required"));
             }
         }
-        let body = match input.get("bodyHtml").and_then(Value::as_str) {
+        // First import of a folder that already carries `.monochrome/info.json`
+        // (a backup restored without the database, a folder copied between
+        // machines): adopt its metadata. Once a row exists the database wins and
+        // the file is not consulted at all — that is what keeps one authority.
+        let existing = storage_core::posts::stored_root_path(&self.library.connection, category, provider, source_id)?;
+        let mut input = input.clone();
+        let mut seeded_body: Option<String> = None;
+        let root_path = if existing.is_none() {
+            let prospective = import_folder(self, &input, category, category_dir)?;
+            let candidate = self.path_in_root(&validated_post_root(category, &prospective)?)?;
+            let sidecar = read_sidecar(&candidate)?;
+            // A folder without a title in its sidecar has nothing worth adopting;
+            // an empty `metadata.json`-era file must not pin the path either.
+            if sidecar.meta.as_object().map(|object| object.contains_key("title")).unwrap_or(false) {
+                seed_post_input(&mut input, &sidecar.meta);
+                if !sidecar.body.trim().is_empty() {
+                    seeded_body = Some(sidecar.body);
+                }
+                prospective
+            } else {
+                import_folder(self, &input, category, category_dir)?
+            }
+        } else {
+            import_folder(self, &input, category, category_dir)?
+        };
+        let folder = self.path_in_root(&validated_post_root(category, &root_path)?)?;
+        std::fs::create_dir_all(&folder)?;
+
+        let mut body = match input.get("bodyHtml").and_then(Value::as_str) {
             Some(html) => crate::html::sanitize_body(html),
             None => crate::html::plain_text_to_html(input.get("bodyText").and_then(Value::as_str).unwrap_or("")),
         };
-        // Everything that can reject the request runs before `create_dir_all`.
-        let root_path = import_folder(self, input, category, category_dir)?;
-        let folder = self.path_in_root(&validated_post_root(category, &root_path)?)?;
-        std::fs::create_dir_all(&folder)?;
+        // A hand-edited `post.html` is still untrusted: re-clean it through the
+        // same sanitizer instead of serving whatever bytes are on disk.
+        if body.trim().is_empty() {
+            if let Some(seed) = seeded_body {
+                body = crate::html::sanitize_body(&seed);
+            }
+        }
 
         let body_sha256 = storage_core::hash::sha256_text(&body);
         let timestamp = timestamp();
@@ -440,7 +357,7 @@ impl Host {
         let post_id = saved.get("postId").and_then(Value::as_str).unwrap_or("").to_string();
         let row = storage_core::posts::get_post(&self.library.connection, &post_id)?
             .ok_or_else(|| Error::new("imported post row is missing"))?;
-        write_sidecar(&folder, &body, &sidecar_metadata(&row, input))?;
+        write_sidecar(&folder, &body, &sidecar_metadata(&row, &input))?;
         Ok(serde_json::json!({
             "postId": post_id,
             "category": category,
@@ -990,7 +907,7 @@ fn same_file(left: &Path, right: &Path) -> bool {
 /// Remove directories left empty above a deleted post folder.
 ///
 /// Stops before `source_root` (never remove the library root) and before
-/// `Creations/`/`Videos/` (the category roots are the top of the readable tree
+/// `creations/`/`videos/` (the category roots are the top of the readable tree
 /// and must survive an emptied library). `remove_dir` rather than
 /// `remove_dir_all` is what makes this safe: a directory that still holds
 /// another creator's folder simply fails and ends the walk.
@@ -1100,7 +1017,7 @@ mod tests {
             }))
             .unwrap();
         let root_path = outcome["rootPath"].as_str().unwrap();
-        assert_eq!(root_path, "Creations/Patreon/Some Creator/2025-03-04 1$ (a&b) [9001]");
+        assert_eq!(root_path, "creations/Patreon/Some Creator/2025-03-04 1$ (a&b) [9001]");
         let folder = root.path().join(root_path);
         let meta = read_sidecar(&folder).unwrap().meta;
         let row = host.get_post(outcome["postId"].as_str().unwrap()).unwrap();
@@ -1124,7 +1041,10 @@ mod tests {
         assert_eq!(meta["bodySha256"], storage_core::hash::sha256_text(&body));
         assert_eq!(meta["bodySha256"], row["bodySha256"]);
 
-        // A re-import rewrites the mirror, so the revision follows the row.
+        // `info.json` is a seed, not a mirror: a re-import updates the row and
+        // the body, and deliberately leaves the file exactly as first written.
+        // Rewriting it every import is the second write path that made the old
+        // `metadata.json` untrustworthy (docs/16 §2.6).
         let mut again = serde_json::json!({
             "category": "creation", "provider": "Patreon", "sourceId": "9001", "title": "1$ (a&b) v2",
             "bodyHtml": "<p>changed</p>", "creator": { "sourceId": "u-7", "name": "Some Creator" }
@@ -1132,9 +1052,72 @@ mod tests {
         again["publishedAt"] = serde_json::json!("2025-03-04 05:06:07");
         host.import_post(&again).unwrap();
         let meta = read_sidecar(&folder).unwrap().meta;
-        assert_eq!(meta["revision"], 2, "{meta}");
-        assert_eq!(meta["title"], "1$ (a&b) v2");
-        assert_eq!(meta["rootPath"], root_path, "a re-import keeps the folder");
+        assert_eq!(meta["revision"], 1, "the seed keeps its first-import revision: {meta}");
+        assert_eq!(meta["title"], "1$ (a&b)", "the seed is not rewritten: {meta}");
+        let row = host.get_post(outcome["postId"].as_str().unwrap()).unwrap();
+        assert_eq!(row["title"], "1$ (a&b) v2", "the row is the authority");
+    }
+
+    /// A folder restored without its database still says what it is: the first
+    /// import adopts `.monochrome/info.json`. A file a human marked `manual`
+    /// outranks the request, and the import never overwrites the correction.
+    #[test]
+    fn first_import_adopts_the_folders_own_info_json() {
+        let root = TempRoot::new("sidecar-seed");
+        let request = serde_json::json!({
+            "category": "creation",
+            "provider": "Patreon",
+            "sourceId": "77",
+            "title": "Seed",
+            "publishedAt": "2026-01-01T00:00:00.000Z",
+            "bodyText": "body",
+            "creator": { "sourceId": "u1", "name": "Creator" }
+        });
+        let mut first = test_host(root.path());
+        let outcome = first.import_post(&request).unwrap();
+        let root_path = outcome["rootPath"].as_str().unwrap().to_string();
+        let folder = root.path().join(&root_path);
+        drop(first);
+
+        // A second library over the same source root: no row, the folder and its
+        // seed remain. A human has corrected the title and tags by hand.
+        let mut info: serde_json::Value =
+            serde_json::from_str(&std::fs::read_to_string(folder.join(".monochrome/info.json")).unwrap()).unwrap();
+        info["manual"] = serde_json::json!(true);
+        info["title"] = serde_json::json!("Edited By Hand");
+        info["tags"] = serde_json::json!(["restored"]);
+        std::fs::write(folder.join(".monochrome/info.json"), info.to_string()).unwrap();
+
+        let mut second = Host::open(HostOptions {
+            library_root: root.path().join("lib2"),
+            source_root: Some(root.path().to_path_buf()),
+            allowed_source_roots: vec![root.path().to_path_buf()],
+            allow_outside_root: true,
+            experiment_root: None,
+            snapshot_fault: None,
+        })
+        .unwrap();
+        let imported = second.import_post(&request).unwrap();
+        assert_eq!(imported["rootPath"], root_path, "the folder is reused, not duplicated");
+        let row = second.get_post(imported["postId"].as_str().unwrap()).unwrap();
+        assert_eq!(row["title"], "Edited By Hand", "a manual seed wins over the request: {row}");
+        assert_eq!(row["tags"], serde_json::json!(["restored"]), "{row}");
+        let after = read_sidecar(&folder).unwrap().meta;
+        assert_eq!(after["title"], "Edited By Hand", "the import did not overwrite the correction");
+    }
+
+    #[test]
+    fn seed_post_input_fills_gaps_unless_marked_manual() {
+        let seed = serde_json::json!({ "title": "Seed", "tags": ["a"], "publishedAt": "2026-01-01" });
+        let mut input = serde_json::json!({ "title": "Request", "tags": [] });
+        seed_post_input(&mut input, &seed);
+        assert_eq!(input["title"], "Request", "the request wins by default");
+        assert_eq!(input["tags"], serde_json::json!(["a"]), "an empty value is a gap");
+        assert_eq!(input["publishedAt"], "2026-01-01");
+
+        let manual = serde_json::json!({ "manual": true, "title": "Edited" });
+        seed_post_input(&mut input, &manual);
+        assert_eq!(input["title"], "Edited", "manual wins even over a present value");
     }
 
     #[test]
@@ -1162,7 +1145,7 @@ mod tests {
         assert_eq!(second["postId"], first["postId"], "a re-import updates the same row");
         assert_eq!(second["rootPath"], first["rootPath"]);
 
-        let creator_dir = root.path().join("Creations/Patreon/Creator");
+        let creator_dir = root.path().join("creations/Patreon/Creator");
         let folders = std::fs::read_dir(&creator_dir)
             .unwrap()
             .filter(|entry| entry.as_ref().map(|entry| entry.path().is_dir()).unwrap_or(false))
@@ -1171,41 +1154,9 @@ mod tests {
     }
 
     #[test]
-    fn folder_name_is_readable_and_stable() {
-        assert_eq!(
-            post_folder("Creations", "Patreon", "Some Creator", "2026-02-10", "5$ ✨", "150409075"),
-            "Creations/Patreon/Some Creator/2026-02-10 5$ ✨ [150409075]"
-        );
-        // Path separators and Windows-illegal characters must not escape the tree.
-        assert_eq!(
-            post_folder("Videos", "YouTube", "a/b", "", "x:y?z", "abc"),
-            "Videos/YouTube/a_b/0000-00-00 x_y_z [abc]"
-        );
-    }
-
-    #[test]
-    fn segment_rules_keep_names_usable_on_windows() {
-        // Trailing dots and spaces are stripped by Win32 itself; keeping them
-        // would let `"x."` and `"x"` name the same folder while looking distinct.
-        assert_eq!(segment("name...  .", "f"), "name");
-        assert_eq!(segment(". . .", "f"), "f");
-        // Device names cannot be a file name at all, extension or not.
-        assert_eq!(segment("CON", "f"), "_CON");
-        assert_eq!(segment("nul.txt", "f"), "_nul.txt");
-        assert_eq!(segment("com9", "f"), "_com9");
-        assert_eq!(segment("console", "f"), "console");
-        // Truncation happens on a character boundary: 201 CJK characters must
-        // not panic and must not exceed the cap.
-        let long = "音".repeat(201);
-        assert_eq!(segment(&long, "f").chars().count(), MAX_SEGMENT_CHARS);
-        let long_ascii = "a".repeat(250);
-        assert_eq!(segment(&long_ascii, "f").chars().count(), MAX_SEGMENT_CHARS);
-    }
-
-    #[test]
     fn sidecar_round_trips_body_and_metadata() {
         let root = TempRoot::new("posts");
-        let folder = root.path().join("Creations/Patreon/c/2026-01-01 t [1]");
+        let folder = root.path().join("creations/Patreon/c/2026-01-01 t [1]");
         std::fs::create_dir_all(&folder).unwrap();
         write_sidecar(&folder, "<p>hi</p>", &serde_json::json!({ "title": "t" })).unwrap();
         let read = read_sidecar(&folder).unwrap();
@@ -1351,7 +1302,7 @@ mod tests {
             }))
             .unwrap();
         let post_id = created["postId"].as_str().unwrap().to_string();
-        let creator_dir = root.path().join("Creations/patreon/OnlyCreator");
+        let creator_dir = root.path().join("creations/patreon/OnlyCreator");
         assert!(creator_dir.exists());
 
         host.delete_post(&post_id).unwrap();
@@ -1369,17 +1320,17 @@ mod tests {
         let mut host = test_host(root.path());
         std::fs::create_dir_all(root.path().join("RJ000001")).unwrap();
         std::fs::write(root.path().join("RJ000001/track01.mp3"), b"audio").unwrap();
-        std::fs::create_dir_all(root.path().join("Creations/Patreon/C/post [1]")).unwrap();
-        std::fs::write(root.path().join("Creations/Patreon/C/post [1]/a.jpg"), b"img").unwrap();
+        std::fs::create_dir_all(root.path().join("creations/Patreon/C/post [1]")).unwrap();
+        std::fs::write(root.path().join("creations/Patreon/C/post [1]/a.jpg"), b"img").unwrap();
 
         for (tag, root_path) in [
             ("empty", ""),
             ("dot", "."),
             ("category", "Videos"),
-            ("parent", "Videos/.."),
+            ("parent", "videos/.."),
             ("audio", "RJ000001"),
-            ("other-category", "Creations/Patreon/C/post [1]"),
-            ("nested", "Videos/../Creations/Patreon/C/post [1]"),
+            ("other-category", "creations/Patreon/C/post [1]"),
+            ("nested", "videos/../creations/Patreon/C/post [1]"),
         ] {
             let post_id = format!("legacy-{tag}");
             host.library
@@ -1394,7 +1345,7 @@ mod tests {
             assert_eq!(error.code_or_internal(), "EPATHDENIED", "{tag}: {error:?}");
             assert!(root.path().join("RJ000001/track01.mp3").exists(), "{tag}: audio work survived");
             assert!(
-                root.path().join("Creations/Patreon/C/post [1]/a.jpg").exists(),
+                root.path().join("creations/Patreon/C/post [1]/a.jpg").exists(),
                 "{tag}: creation survived"
             );
         }
@@ -1406,7 +1357,7 @@ mod tests {
         // `"."` or another category's folder turned the next delete into a wipe.
         let root = TempRoot::new("ignore-root");
         let mut host = test_host(root.path());
-        for (index, supplied) in ["", ".", "Videos", "Videos/..", "RJ000001", ".monochrome"].iter().enumerate() {
+        for (index, supplied) in ["", ".", "Videos", "videos/..", "RJ000001", ".monochrome"].iter().enumerate() {
             let outcome = host
                 .import_post(&serde_json::json!({
                     "category": "video", "provider": "youtube", "sourceId": format!("c{index}"),
@@ -1415,7 +1366,7 @@ mod tests {
                 }))
                 .unwrap();
             let stored = outcome["rootPath"].as_str().unwrap();
-            assert!(stored.starts_with("Videos/youtube/c/"), "{supplied:?} -> {stored}");
+            assert!(stored.starts_with("videos/youtube/c/"), "{supplied:?} -> {stored}");
             assert_eq!(validated_post_root("video", stored).unwrap(), stored);
         }
     }
@@ -1791,7 +1742,7 @@ mod tests {
         // paths must never resolve to a sibling post or to an arbitrary file.
         // `folder.join("C:victim.txt")` *replaces* the folder, which is why the
         // per-segment validation exists on top of the `..` check.
-        let folder = std::path::Path::new("C:/lib/Creations/p/c/post");
+        let folder = std::path::Path::new("C:/lib/creations/p/c/post");
         for bad in [
             "../x",
             "/abs",
@@ -1857,23 +1808,23 @@ mod tests {
 
     #[test]
     fn validated_post_root_accepts_only_four_confined_segments() {
-        let ok = "Videos/YouTube/Chan/2026-01-01 clip [abc]";
+        let ok = "videos/YouTube/Chan/2026-01-01 clip [abc]";
         assert_eq!(validated_post_root("video", ok).unwrap(), ok);
         for bad in [
             "",
             ".",
             "..",
             "Videos",
-            "Videos/..",
-            "Videos/YouTube/Chan",
-            "Videos/YouTube/Chan/a/b",
-            "Creations/YouTube/Chan/x",
-            "Videos//Chan/x",
-            "Videos/YouTube/./x",
-            "Videos/YouTube/../x",
+            "videos/..",
+            "videos/YouTube/Chan",
+            "videos/YouTube/Chan/a/b",
+            "creations/YouTube/Chan/x",
+            "videos//Chan/x",
+            "videos/YouTube/./x",
+            "videos/YouTube/../x",
             "Videos\\YouTube\\Chan\\x",
-            "Videos/YouTube/C:han/x",
-            "Videos/YouTube/con/x",
+            "videos/YouTube/C:han/x",
+            "videos/YouTube/con/x",
         ] {
             assert!(validated_post_root("video", bad).is_err(), "{bad:?} was accepted");
         }

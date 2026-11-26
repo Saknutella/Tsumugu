@@ -143,6 +143,10 @@ export function createRouter(ui) {
                 await ui.showPage('videos');
                 document.dispatchEvent(new CustomEvent('monochrome:videos-open', { detail: { id: param || null } }));
                 break;
+            case 'trash':
+                await ui.showPage('trash');
+                document.dispatchEvent(new Event('monochrome:trash-open'));
+                break;
             case 'tauri-test':
                 await ui.showPage('tauri-test');
                 document.dispatchEvent(new Event('monochrome:tauri-test-open'));

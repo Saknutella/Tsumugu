@@ -186,15 +186,35 @@ export function showNotification(message, options = {}) {
         notifEl.appendChild(reportLink);
     }
 
+    // An optional action turns a notification into an undo affordance ("moved to
+    // the trash — Undo"). It keeps the notification alive longer than the usual
+    // 1.5 s, because an action nobody can reach in time is decoration.
+    const action = options.action;
+    if (action && typeof action.onClick === 'function') {
+        const button = document.createElement('button');
+        button.type = 'button';
+        button.className = 'notification-action';
+        button.textContent = String(action.label || 'Undo');
+        button.addEventListener('click', () => {
+            button.disabled = true;
+            Promise.resolve()
+                .then(action.onClick)
+                .catch((error) => console.error('notification action failed', error))
+                .finally(() => notifEl.remove());
+        });
+        notifEl.appendChild(button);
+    }
+
     container.appendChild(notifEl);
 
     // Auto remove
+    const lifetime = action && typeof action.onClick === 'function' ? 12000 : isError ? 10000 : 1500;
     setTimeout(
         () => {
             notifEl.style.animation = 'slide-out 0.3s ease forwards';
             setTimeout(() => notifEl.remove(), 300);
         },
-        isError ? 10000 : 1500
+        lifetime
     );
 }
 

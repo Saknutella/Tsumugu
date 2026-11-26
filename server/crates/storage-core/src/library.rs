@@ -18,6 +18,7 @@ use rusqlite::{Connection, OptionalExtension, Row as SqlRow};
 use serde_json::{json, Map, Value};
 
 use crate::error::{abort_error, Error, Result};
+use crate::layout;
 use crate::fsutil;
 use crate::hash::{self, sha256_text};
 use crate::jsonutil::{
@@ -69,11 +70,32 @@ pub struct SourceEntry {
     pub kind: String,
     pub mime: String,
     pub source_path: String,
+    /// Absolute path to open while importing, when the producer knows one.
+    ///
+    /// WHY it is separate from `source_path`: layout v2 stores `sourcePath`
+    /// relative to the source root, so the record survives a moved library, but the
+    /// import still has to hash the real bytes before anything is written. The
+    /// ingest layer therefore passes both — the stored form and the absolute path
+    /// it validated. Callers that only know one form (a source-only fixture,
+    /// `sourcePath` written absolutely before phase 2a) leave this empty and the
+    /// stored value is read as-is.
+    pub absolute_path: Option<String>,
     pub display_title: String,
     pub track_key: String,
     pub format: String,
     /// Set during import once the bytes have been hashed.
     pub asset: Option<PublishedAsset>,
+}
+
+impl SourceEntry {
+    /// Path to open when hashing: the producer's validated absolute path when it
+    /// supplied one, else the stored value.
+    pub fn read_path(&self) -> &str {
+        self.absolute_path
+            .as_deref()
+            .filter(|value| !value.is_empty())
+            .unwrap_or(&self.source_path)
+    }
 }
 
 #[derive(Debug, Clone)]
@@ -241,6 +263,12 @@ fn validate_entry(entry: &Value, index: usize) -> Result<SourceEntry> {
     if source_path.is_empty() {
         return Err(Error::new(format!("entry[{index}] sourcePath is required")));
     }
+    // Optional companion of a relative `sourcePath`: the absolute path the
+    // producer validated, used only to open the bytes. Never stored.
+    let absolute_path = {
+        let value = trimmed(object.get("absolutePath"), "");
+        if value.is_empty() { None } else { Some(value) }
+    };
     let mime = {
         let value = trimmed(object.get("mime"), "application/octet-stream");
         if value.is_empty() { "application/octet-stream".to_string() } else { value }
@@ -259,6 +287,7 @@ fn validate_entry(entry: &Value, index: usize) -> Result<SourceEntry> {
         kind,
         mime,
         source_path,
+        absolute_path,
         display_title,
         track_key: trimmed(object.get("trackKey"), ""),
         format: trimmed(object.get("format"), ""),
@@ -322,20 +351,24 @@ impl Library {
         fsutil::ensure_dir(&absolute)?;
         paths::assert_no_reparse(&absolute, false)?;
 
-        let data_root = absolute.join("data");
+        // Layout v1 kept everything under `<root>/data/`. Convert the files before
+        // opening the database: on Windows an open SQLite handle cannot be renamed,
+        // and doing it first keeps an interrupted migration resumable — the next
+        // open finds a flat database and only has rows left to rewrite.
+        //
+        // Runs regardless of `create`: the host always opens with `create: true`
+        // (it does not know yet whether the root is new), and gating on that flag
+        // meant a v1 root was never converted — the host instead created a second,
+        // empty database beside it. `migrate_files` is a no-op when there is
+        // nothing to move.
+        crate::layout::migrate_files(&absolute)?;
+
+        let data_root = absolute.clone();
         if options.create {
-            for directory in [
-                data_root.clone(),
-                data_root.join("assets").join("sha256"),
-                data_root.join("works"),
-                data_root.join("tmp"),
-                data_root.join("cache"),
-                data_root.join("trash"),
-            ] {
+            for directory in crate::layout::directories(&absolute) {
                 fsutil::ensure_dir(&directory)?;
             }
-            fsutil::ensure_dir(&absolute.join("quarantine"))?;
-        } else if !fsutil::path_exists(&data_root.join("library.sqlite")) {
+        } else if !fsutil::path_exists(&data_root.join(crate::layout::LIBRARY_SQLITE)) {
             return Err(Error::coded(
                 "ENOLIBRARY",
                 format!("no storage-lab library at {}", absolute.display()),
@@ -365,6 +398,13 @@ impl Library {
             .clone()
             .unwrap_or_else(|| uuid::Uuid::new_v4().to_string());
         schema::apply_schema(&connection, &provisional_id)?;
+        // Stored paths from a v1 root still use the old directory names. Every
+        // statement is a prefix replacement that matches nothing once applied, so
+        // this runs unconditionally instead of trusting a version marker — a root
+        // migrated by an older build can still carry unmigrated rows.
+        // `entry.original_path` needs the source root, which only the host knows;
+        // it repeats this call from `Host::open`.
+        crate::layout::migrate_rows(&connection, None)?;
 
         let library_row: Option<(String, i64)> = connection
             .query_row("SELECT library_id, schema_version FROM library LIMIT 1", [], |row| {
@@ -521,7 +561,7 @@ impl Library {
             }
             // Crash recovery: an uncommitted job may be retried. Remove only this
             // job's own temp dir, never a blind tmp prefix.
-            let stale_temp = self.data_root.join("tmp").join(&existing.job_id);
+            let stale_temp = layout::staging_root(&self.data_root).join(&existing.job_id);
             let _ = std::fs::remove_dir_all(&stale_temp);
             self.tx(|| {
                 self.connection.execute(
@@ -533,7 +573,7 @@ impl Library {
         }
 
         let job_id = uuid::Uuid::new_v4().to_string();
-        let job_temp_dir = self.data_root.join("tmp").join(&job_id);
+        let job_temp_dir = layout::staging_root(&self.data_root).join(&job_id);
         fsutil::ensure_dir(&job_temp_dir)?;
         self.tx(|| {
             let timestamp = now_iso();
@@ -552,7 +592,7 @@ impl Library {
             // `rel_path` is a virtual `source/<sha256>` marker, and media reads
             // resolve through `entry.original_path`.
             for (index, entry) in source.entries.iter_mut().enumerate() {
-                let (sha256, bytes) = hash::hash_file(Path::new(&entry.source_path))?;
+                let (sha256, bytes) = hash::hash_file(Path::new(entry.read_path()))?;
                 entry.asset = Some(PublishedAsset {
                     asset_id: sha256.clone(),
                     sha256: sha256.clone(),
@@ -801,12 +841,12 @@ impl Library {
         }
 
         let job_id = uuid::Uuid::new_v4().to_string();
-        let job_temp_dir = self.data_root.join("tmp").join(&job_id);
+        let job_temp_dir = layout::staging_root(&self.data_root).join(&job_id);
         fsutil::ensure_dir(&job_temp_dir)?;
 
         let result = (|| -> Result<MergeOutcome> {
             for entry in source.entries.iter_mut() {
-                let (sha256, bytes) = hash::hash_file(Path::new(&entry.source_path))?;
+                let (sha256, bytes) = hash::hash_file(Path::new(entry.read_path()))?;
                 entry.asset = Some(PublishedAsset {
                     asset_id: sha256.clone(),
                     sha256: sha256.clone(),
@@ -2109,11 +2149,20 @@ impl SnapshotPublish {
 }
 
 fn write_root_metadata(root: &Path, library_id: &str, create: bool) -> Result<()> {
-    let path = root.join("root.json");
+    let path = root.join(layout::ROOT_JSON);
     if let Some(existing) = fsutil::read_json(&path, None) {
         let existing_id = existing.get("libraryId").and_then(Value::as_str);
         if existing_id != Some(library_id) && create {
             return Err(Error::new("root.json and library.sqlite libraryId mismatch"));
+        }
+        // The layout field is what tells the next open whether conversion is done;
+        // older roots do not carry it at all (recorded_version reads that as 1).
+        if layout::recorded_version(Some(&existing)) < layout::LAYOUT_VERSION {
+            let mut updated = existing;
+            if let Some(object) = updated.as_object_mut() {
+                object.insert("layout".into(), Value::from(layout::LAYOUT_VERSION));
+            }
+            fsutil::atomic_write_json(&path, &updated)?;
         }
         return Ok(());
     }
@@ -2124,6 +2173,7 @@ fn write_root_metadata(root: &Path, library_id: &str, create: bool) -> Result<()
     }
     let metadata = json!({
         "schemaVersion": schema::SCHEMA_VERSION,
+        "layout": layout::LAYOUT_VERSION,
         "libraryId": library_id,
         "createdAt": now_iso(),
         "app": "monochrome-storage-lab",
@@ -2241,7 +2291,82 @@ mod tests {
             .query_row("SELECT rel_path FROM asset LIMIT 1", [], |row| row.get(0))
             .unwrap();
         assert!(rel.starts_with("source/"));
-        assert!(!lib.data_root.join("assets").join("sha256").join(&rel[7..]).exists());
+        assert!(!layout::derived_root(&lib.data_root).join("sha256").join(&rel[7..]).exists());
+        let _ = root;
+    }
+
+    /// The accepted rule is one copy per work, not one copy per library: two
+    /// works pointing at the same bytes must both import. Before schema v9 the
+    /// second insert collided on `asset.sha256` / `asset.rel_path`; the rows now
+    /// may share those values because `asset_id` is the identity.
+    #[test]
+    fn two_works_may_contain_the_same_file() {
+        let (mut lib, root, source_root) = library("shared-file");
+        let first = lib.import_work(source(&source_root), "shared-1").unwrap();
+        let mut second_source = source(&source_root);
+        second_source.source_code = "RJ00000002".to_string();
+        second_source.title = "Second work".to_string();
+        let second = lib.import_work(second_source, "shared-2").unwrap();
+        assert_ne!(first.work["workId"], second.work["workId"]);
+
+        for work in [&first.work, &second.work] {
+            let work_id = work["workId"].as_str().unwrap();
+            let refs: i64 = lib
+                .connection
+                .query_row(
+                    "SELECT COUNT(*) FROM asset_ref WHERE work_id = ?",
+                    rusqlite::params![work_id],
+                    |row| row.get(0),
+                )
+                .unwrap();
+            assert_eq!(refs, 2, "{work_id} lost an entry to the shared bytes");
+        }
+        // Both entries of both works resolve to an asset row with the same path.
+        let shared: i64 = lib
+            .connection
+            .query_row(
+                "SELECT COUNT(*) FROM asset WHERE rel_path LIKE 'source/%'",
+                [],
+                |row| row.get(0),
+            )
+            .unwrap();
+        assert_eq!(shared, 2);
+        let _ = root;
+    }
+
+    /// Layout v2 writes `sourcePath` relative to the source root; the bytes still
+    /// have to be hashed from somewhere, and the snapshot keeps the relative form
+    /// so the record survives a moved library. Both halves matter: getting only
+    /// the first wrong fails the import, getting only the second wrong silently
+    /// re-pins the machine path into the record.
+    #[test]
+    fn relative_source_path_is_stored_while_the_bytes_come_from_the_absolute_one() {
+        let (mut lib, root, source_root) = library("read-path");
+        let mut record = source(&source_root);
+        for entry in record.entries.iter_mut() {
+            let name = entry.logical_path.rsplit('/').next().unwrap().to_string();
+            entry.absolute_path = Some(source_root.join("work").join(&name).to_string_lossy().into_owned());
+            entry.source_path = format!("work/{name}");
+        }
+        let outcome = lib.import_work(record, "key-read-path").unwrap();
+        assert_eq!(outcome.work["entries"].as_array().unwrap().len(), 2);
+        let stored: Vec<String> = {
+            let mut statement = lib.connection.prepare("SELECT original_path FROM entry ORDER BY logical_path").unwrap();
+            let rows = statement
+                .query_map([], |row| row.get::<_, String>(0))
+                .unwrap()
+                .collect::<rusqlite::Result<Vec<_>>>()
+                .unwrap();
+            rows
+        };
+        assert_eq!(stored, vec!["work/01.mp3".to_string(), "work/02.wav".to_string()]);
+        // The snapshot carries the same relative value, never the absolute one.
+        let snapshot: String = lib
+            .connection
+            .query_row("SELECT snapshot_json FROM source_ref LIMIT 1", [], |row| row.get(0))
+            .unwrap();
+        assert!(snapshot.contains("\"sourcePath\":\"work/01.mp3\""), "{snapshot}");
+        assert!(!snapshot.contains(&source_root.to_string_lossy().replace('\\', "\\\\")), "absolute path leaked into the snapshot");
         let _ = root;
     }
 

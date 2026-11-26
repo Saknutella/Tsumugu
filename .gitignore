@@ -37,9 +37,9 @@ bun.lock
 verify/.tmp/
 .cache/
 
-# Rust 编译产物。cargo 读取 rust-backend/.gitignore 里的 /target/,但项目的
+# Rust 编译产物。cargo 读取 server/.gitignore 里的 /target/,但项目的
 # verify/check.mjs 只读根 .gitignore,嵌套规则不参与扫描,所以两处都要写。
-rust-backend/target/
+server/target/
 
 # Demo web build output (rebuild with: node demo/build-web.mjs)
 demo/web/
@@ -74,8 +74,8 @@ demo/portable/MonochromeData/
 # 验证脚本的临时输出与诊断转储;本地重跑即可再生,不属于源码。
 verify/.tmp/**
 demo/.tmp/
-# 日志、本地缓存(.cache/)、.vite/、dev-dist 与 rust-backend/target/ 已由本文件前面的
-# 段落覆盖:上面的 `*.log`、`.cache/`、`.vite`、`dev-dist` 和第 41 行的 `rust-backend/target/`。
+# 日志、本地缓存(.cache/)、.vite/、dev-dist 与 server/target/ 已由本文件前面的
+# 段落覆盖:上面的 `*.log`、`.cache/`、`.vite`、`dev-dist` 和第 41 行的 `server/target/`。
 # 这里刻意不重复写,免得同一规则两处维护、合并上游时打架。
 
 # ── 上传策略:只保留代码(2026-11-18)──

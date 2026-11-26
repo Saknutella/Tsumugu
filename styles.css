@@ -5526,6 +5526,29 @@ input:checked + .slider::before {
     color: var(--foreground);
 }
 
+/* An action (undo, retry) inside a notification. Kept small and inline so a
+   toast that usually just says something does not grow into a card. */
+.notification-action {
+    align-self: flex-start;
+    margin-top: 0.6rem;
+    padding: 0.3rem 0.75rem;
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    background: transparent;
+    color: var(--foreground);
+    font-size: 0.8rem;
+    cursor: pointer;
+}
+
+.notification-action:hover:not(:disabled) {
+    background: var(--secondary);
+}
+
+.notification-action:disabled {
+    opacity: 0.5;
+    cursor: default;
+}
+
 .download-cancel:hover {
     background: var(--secondary) !important;
     color: var(--foreground) !important;
@@ -12573,6 +12596,128 @@ body.sidebar-collapsed #sidebar-nav-donate {
     cursor: not-allowed;
 }
 
+/* ── 回收站 ─────────────────────────────────────────────────────────────
+   A trash row is a list row, not a card: the useful information is a path, a
+   date and a size, all of which want one line each. Cards would waste the
+   horizontal space those paths need. */
+.trash-page {
+    padding: 1.5rem;
+    max-width: 1100px;
+    margin: 0 auto;
+}
+
+.trash-header {
+    align-items: flex-start;
+}
+
+.trash-hint {
+    margin: 0.35rem 0 0;
+    color: var(--muted-foreground);
+    font-size: 0.8rem;
+}
+
+.trash-list {
+    display: flex;
+    flex-direction: column;
+    gap: 0.5rem;
+}
+
+.trash-list:empty {
+    display: none;
+}
+
+.trash-row {
+    display: flex;
+    align-items: center;
+    gap: 0.85rem;
+    padding: 0.75rem 0.9rem;
+    border: 1px solid var(--border);
+    border-radius: calc(var(--radius) + 2px);
+    background: var(--card);
+    transition: border-color 0.15s ease, background 0.15s ease;
+}
+
+.trash-row:hover {
+    border-color: var(--highlight);
+}
+
+.trash-row--selected {
+    border-color: var(--highlight);
+    background: color-mix(in srgb, var(--highlight) 7%, var(--card));
+}
+
+.trash-select-check {
+    flex: 0 0 auto;
+    position: static;
+    width: 1.35rem;
+    height: 1.35rem;
+    border-radius: 50%;
+    border: 1px solid var(--border);
+    background: transparent;
+    color: var(--foreground);
+    font-size: 0.75rem;
+    cursor: pointer;
+}
+
+.trash-row-body {
+    flex: 1 1 auto;
+    min-width: 0;
+}
+
+.trash-row-title {
+    margin: 0;
+    font-size: 0.92rem;
+    font-weight: 600;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+
+.trash-row-origin {
+    margin: 0.15rem 0 0;
+    font-size: 0.75rem;
+    color: var(--muted-foreground);
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    direction: rtl;
+    text-align: left;
+}
+
+.trash-row-meta {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 0.4rem;
+    margin: 0.25rem 0 0;
+    font-size: 0.72rem;
+    color: var(--muted-foreground);
+}
+
+.trash-row-flag {
+    padding: 0.05rem 0.4rem;
+    border: 1px solid var(--border);
+    border-radius: 999px;
+    font-size: 0.68rem;
+}
+
+.trash-row-actions {
+    display: flex;
+    flex: 0 0 auto;
+    gap: 0.45rem;
+}
+
+@media (max-width: 720px) {
+    .trash-row {
+        flex-wrap: wrap;
+    }
+
+    .trash-row-actions {
+        width: 100%;
+        justify-content: flex-end;
+    }
+}
+
 .creation-card-delete:hover {
     background: rgb(220 38 38 / 90%);
 }
@@ -19343,4 +19488,91 @@ html body #page-videos .videos-page {
 .creation-filter-chip[data-kind='local'][data-value='partial'] {
     --tag-accent: #fbbf24;
     --filter-accent: #fbbf24;
+}
+
+/* Voice album: same draggable split contract as creation details. The handle
+   is excluded from the ratio so 66:34 describes the two visible columns. */
+@media (min-width: 1200px) {
+    #page-album[data-voice-work-id] .album-content-layout {
+        --voice-track-share: 0.66;
+        --voice-track-min: 420px;
+        --voice-more-min: 280px;
+        --voice-split-width: 20px;
+        --voice-columns-width: calc(100% - var(--voice-split-width));
+        --voice-track-width: clamp(
+            var(--voice-track-min),
+            calc(var(--voice-columns-width) * var(--voice-track-share)),
+            calc(var(--voice-columns-width) - var(--voice-more-min))
+        );
+
+        display: grid;
+        grid-template-columns: var(--voice-track-width) var(--voice-split-width) minmax(0, 1fr);
+        align-items: start;
+        column-gap: 0;
+    }
+
+    #page-album[data-voice-work-id] #album-detail-tracklist {
+        grid-column: 1;
+        float: none;
+        width: auto;
+        min-width: 0;
+        margin-right: 0;
+    }
+
+    #page-album[data-voice-work-id] .voice-album-more {
+        grid-column: 3;
+        position: sticky;
+        top: 1rem;
+        min-width: 0;
+        margin-top: 0;
+        padding-left: 1rem;
+        clear: none;
+    }
+
+    #page-album[data-voice-work-id] .voice-album-split-resizer {
+        position: relative;
+        display: flex;
+        grid-column: 2;
+        justify-content: center;
+        align-self: stretch;
+        min-height: 100%;
+        touch-action: none;
+        user-select: none;
+        cursor: col-resize;
+        background: linear-gradient(var(--border), var(--border)) center / 1px 100% no-repeat;
+    }
+
+    #page-album[data-voice-work-id] .voice-album-split-resizer:is(:hover, :focus-visible, .is-dragging) {
+        background: linear-gradient(var(--muted-foreground), var(--muted-foreground)) center / 2px 100% no-repeat;
+    }
+
+    #page-album[data-voice-work-id] .voice-album-split-resizer-pill {
+        position: sticky;
+        top: 48vh;
+        align-self: flex-start;
+        width: 6px;
+        height: 44px;
+        margin-block: 14px;
+        border-radius: var(--radius-full);
+        background: var(--muted-foreground);
+        box-shadow: 0 0 0 3px var(--background);
+        opacity: 0.68;
+        transition: opacity 140ms ease, transform 140ms ease;
+    }
+
+    #page-album[data-voice-work-id] .voice-album-split-resizer:is(:hover, :focus-visible, .is-dragging) .voice-album-split-resizer-pill {
+        opacity: 1;
+        transform: scaleY(1.15);
+    }
+
+    #page-album[data-voice-work-id] .album-content-layout.is-dragging-split {
+        cursor: col-resize;
+        user-select: none;
+    }
+}
+
+@media (max-width: 1199px) {
+    #page-album[data-voice-work-id] .voice-album-split-resizer {
+        display: none;
+    }
 }

@@ -1,0 +1,80 @@
+{
+  "schema": 1,
+  "exportedAt": "2026-11-07T00:00:00.000Z",
+  "source": "monochrome-legacy-export",
+  "voices": [
+    {
+      "id": "old-voice-1",
+      "workId": "old-voice-1",
+      "provider": "dlsite",
+      "sourceCode": "RJ90000001",
+      "title": "Legacy Voice One",
+      "circle": "Legacy Circle A",
+      "cvs": ["CV One", "CV Two"],
+      "language": "ja",
+      "role": "source",
+      "favorite": true,
+      "notes": "legacy note one",
+      "createdAt": "2026-01-01T00:00:00.000Z",
+      "tracks": [
+        {
+          "id": "old-track-1",
+          "title": "Track 1",
+          "type": "audio",
+          "mediaStreamUrl": "https://legacy.invalid/voice1/track1.mp3",
+          "mediaDownloadUrl": "https://legacy.invalid/voice1/track1.mp3"
+        },
+        {
+          "id": "old-folder-1",
+          "title": "Nested folder",
+          "type": "folder",
+          "tracks": [
+            {
+              "id": "old-track-2",
+              "title": "Track 2",
+              "type": "audio",
+              "mediaStreamUrl": "https://legacy.invalid/voice1/track2.wav"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "id": "old-voice-2",
+      "workId": "old-voice-2",
+      "provider": "dlsite",
+      "sourceCode": "RJ90000002",
+      "title": "Legacy Voice Two",
+      "circle": "Legacy Circle B",
+      "cvs": ["CV Three"],
+      "language": "zh",
+      "role": "translation",
+      "favorite": false,
+      "notes": "legacy note two",
+      "tracks": [
+        {
+          "id": "old-track-3",
+          "title": "Track 3",
+          "type": "audio",
+          "mediaStreamUrl": "https://legacy.invalid/voice2/track3.flac"
+        }
+      ]
+    }
+  ],
+  "favorites": {
+    "voices": ["old-voice-1"],
+    "tracks": ["old-track-2"]
+  },
+  "history": [
+    { "voiceId": "old-voice-1", "trackId": "old-track-1", "position": 12.5, "at": "2026-01-02T00:00:00.000Z" },
+    { "voiceId": "old-voice-2", "trackId": "old-track-3", "position": 3, "at": "2026-01-03T00:00:00.000Z" }
+  ],
+  "playlists": [
+    { "id": "old-playlist-1", "name": "Legacy list", "items": [{ "voiceId": "old-voice-2", "trackId": "old-track-3" }] }
+  ],
+  "settings": {
+    "theme": "dark",
+    "language": "zh",
+    "subtitleEnabled": true
+  }
+}

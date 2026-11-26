@@ -217,7 +217,7 @@
     Node host 的全部路由与 legacy 迁移已移植，差分 79 步 0 差异，但 Linux/macOS 连编译都没做过；
     Tauri 打包仍启动 Node host；封面/音声包外网下载、`/api/works/open`、创作附件上传只做了代码核对。
     默认后端仍是 Node（`start-web-fullstack.ps1 -Backend rust` 才切换）。详见
-    [docs/18](docs/18-rust-backend.md) §6。
+    [docs/18](docs/18-server.md) §6。
 
 ## 未验证(不要当结论用)
 
@@ -324,7 +324,7 @@
 - [x] Windows Tauri：真实文件存储切换 + 本地音声库导入/播放主流程（追加切片，见交接 131）；
 - [ ] Windows Tauri：旧库迁移/删除/编辑/导出主流程。
 - [ ] npm/Web UI：浏览器目录上传/挂载源选择，不依赖 Tauri。
-- [ ] Linux/Docker：POSIX 锁、auth/TLS、`/data/MonochromeData` volume、只读 `/sources`、备份/导出、容器重启/健康检查；需要 Linux 环境与用户明确许可。
+- [ ] Linux/Docker：POSIX 锁、auth/TLS、`/data/TsumuguData` volume、只读 `/sources`、备份/导出、容器重启/健康检查；需要 Linux 环境与用户明确许可。
 - [ ] Android APK（后续，不在当前阶段）：远程 Web/PWA 优先；离线本地存储需原生 SQLite/CAS adapter，不复用 Node sidecar。
 - [ ] 真实旧库迁移切换与回滚。
 

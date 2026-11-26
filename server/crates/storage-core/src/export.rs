@@ -146,8 +146,8 @@ fn entry_asset(entry: &Value) -> Option<&Value> {
         .or_else(|| assets.first())
 }
 
-/// Where an asset's bytes live: CAS under `data/`, or the entry's source file.
-fn asset_source_path(library: &Library, entry: &Value, asset: &Value) -> Result<PathBuf> {
+/// Where an asset's bytes live: CAS under the data root, or the entry's source file.
+fn asset_source_path(library: &Library, entry: &Value, asset: &Value, source_root: Option<&Path>) -> Result<PathBuf> {
     let rel = asset["relPath"].as_str().unwrap_or("").replace('\\', "/");
     if rel.is_empty() || rel.starts_with('/') || rel.split('/').any(|part| part == "..") {
         return Err(Error::new(format!("invalid asset relPath: {rel}")));
@@ -155,7 +155,9 @@ fn asset_source_path(library: &Library, entry: &Value, asset: &Value) -> Result<
     if rel.starts_with("source/") {
         let original = entry["originalPath"].as_str().filter(|value| !value.is_empty());
         let original = original.ok_or_else(|| Error::coded("EEXPORTNOASSET", format!("source-only entry has no original path: {rel}")))?;
-        return Ok(PathBuf::from(original));
+        // Layout v2 stores this relative to the source root; older rows are absolute.
+        return crate::layout::resolve_stored_path(source_root, original)
+            .ok_or_else(|| Error::coded("EEXPORTNOASSET", format!("cannot resolve source path: {original}")));
     }
     Ok(rel.split('/').fold(library.data_root.clone(), |path, part| path.join(part)))
 }
@@ -194,7 +196,7 @@ fn copy_asset(source: &Path, asset: &Value, target: &Path) -> Result<(String, u6
 
 impl Library {
     /// Export one work below `destination` (`exportWork`). Name collisions fail.
-    pub fn export_work(&self, work_id: &str, destination: &Path, friendly_name: Option<&str>) -> Result<Value> {
+    pub fn export_work(&self, work_id: &str, destination: &Path, friendly_name: Option<&str>, source_root: Option<&Path>) -> Result<Value> {
         self.assert_open()?;
         let parent = paths::resolve_lexical(destination);
         paths::assert_no_reparse(&parent, true)?;
@@ -233,7 +235,7 @@ impl Library {
                     Error::coded("EEXPORTNOASSET", format!("entry has no managed asset and cannot be a self-contained export: {logical}"))
                 })?;
                 let target = logical.split('/').fold(content.clone(), |path, part| path.join(part));
-                let (sha256, bytes) = copy_asset(&asset_source_path(self, entry, asset)?, asset, &target)?;
+                let (sha256, bytes) = copy_asset(&asset_source_path(self, entry, asset, source_root)?, asset, &target)?;
                 files.push(json!({
                     "logicalPath": logical,
                     "path": format!("content/{logical}"),
@@ -257,7 +259,7 @@ impl Library {
                         }
                     });
                     let cover_path = format!("monochrome/cover{extension}");
-                    let (sha256, bytes) = copy_asset(&asset_source_path(self, entry, asset)?, asset, &monochrome.join(format!("cover{extension}")))?;
+                    let (sha256, bytes) = copy_asset(&asset_source_path(self, entry, asset, source_root)?, asset, &monochrome.join(format!("cover{extension}")))?;
                     json!({
                         "logicalPath": entry["logicalPath"],
                         "path": cover_path,
@@ -465,19 +467,19 @@ mod tests {
         }))
         .unwrap();
         let work_id = library.import_work(record, "export-key").unwrap().work["workId"].as_str().unwrap().to_string();
-        let result = library.export_work(&work_id, &base.join("exports"), None).unwrap();
+        let result = library.export_work(&work_id, &base.join("exports"), None, None).unwrap();
         assert_eq!(result["friendlyName"], "[RJ00000088][Circle] Export fixture");
         let dir = PathBuf::from(result["dir"].as_str().unwrap());
         assert_eq!(std::fs::read(dir.join("content").join("mp3").join("01.mp3")).unwrap(), b"export-audio");
         assert_eq!(result["manifest"]["cover"]["path"], "monochrome/cover.png");
         assert_eq!(verify_export(&dir)["ok"], true);
         // Collision and an unlisted file are both caught.
-        assert_eq!(library.export_work(&work_id, &base.join("exports"), None).unwrap_err().code, Some("EEXPORTEXISTS"));
+        assert_eq!(library.export_work(&work_id, &base.join("exports"), None, None).unwrap_err().code, Some("EEXPORTEXISTS"));
         std::fs::write(dir.join("content").join("smuggled.txt"), b"x").unwrap();
         assert!(verify_export(&dir)["issues"].as_array().unwrap().iter().any(|issue| issue["code"] == "extra-file"));
         // A source file changed after import must not be exported as if verified.
         std::fs::write(source.join("mp3").join("01.mp3"), b"tampered").unwrap();
-        assert!(library.export_work(&work_id, &base.join("exports2"), None).is_err());
+        assert!(library.export_work(&work_id, &base.join("exports2"), None, None).is_err());
         assert!(!base.join("exports2").join("[RJ00000088][Circle] Export fixture").exists(), "failed export leaves no final dir");
         drop(library);
         let _ = std::fs::remove_dir_all(base);

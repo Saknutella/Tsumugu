@@ -15,7 +15,8 @@
     "tauriTest": "Tauri Test",
     "creations": "Creations",
     "voices": "Voices",
-    "videos": "Videos"
+    "videos": "Videos",
+    "trash": "Trash"
   },
   "header": {
     "searchPlaceholder": "Search for tracks, artists, albums...",
@@ -529,6 +530,7 @@
       "label": "Edition",
       "importFailed": "Failed to import edition"
     },
+    "resizeColumns": "Drag to resize the track list and more works; double-click to reset",
     "translator": "Translator",
     "importHint": "Import Kikoeru / asmr.one works, with metadata and the original file tree.",
     "tagPopoverTitle": "All tags",
@@ -639,10 +641,38 @@
     "deleteSelectedConfirm": "Delete the {{count}} selected item(s)? Only local records are removed.",
     "deleteAllConfirm": "Clear all {{count}} item(s)? Only local records are removed.",
     "deleted": "Deleted",
+    "undo": "Undo",
+    "restored": "Restored from the trash",
+    "restoreFailed": "Restore failed: the trash no longer has these works",
     "clearAll": "Clear all",
-    "deleteSingleConfirmLocal": "Delete “{{title}}”? The local file-library record will be removed and cannot be recovered.",
-    "deleteSelectedConfirmLocal": "Delete the {{count}} selected local file-library work(s)? This cannot be recovered.",
-    "deleteAllConfirmLocal": "Clear all {{count}} item(s)? Local file-library content cannot be recovered."
+    "deleteSingleConfirmLocal": "Delete “{{title}}”? The folder moves to the local trash and can be restored.",
+    "deleteSelectedConfirmLocal": "Delete the {{count}} selected local file-library work(s)? The folders move to the local trash and can be restored.",
+    "deleteAllConfirmLocal": "Clear all {{count}} item(s)? Local file-library folders move to the trash and can be restored."
+  },
+  "trash": {
+    "title": "Trash",
+    "hint": "Deleted works wait here. Restoring puts the folder back where it was.",
+    "refresh": "Refresh",
+    "emptyAll": "Empty trash",
+    "emptyTitle": "The trash is empty",
+    "emptyHint": "Works you delete from the library show up here.",
+    "restore": "Restore",
+    "restoreSelected": "Restore selected",
+    "deleteForever": "Delete forever",
+    "untitled": "Untitled work",
+    "originUnknown": "No recorded location",
+    "notMoved": "Folder left in place",
+    "filesGone": "Files already gone",
+    "loading": "Loading trash…",
+    "loadFailed": "Could not read the trash",
+    "hostUnavailable": "The file library is not connected",
+    "restoring": "Restoring…",
+    "restored": "Restored",
+    "restoreFailed": "Restore failed",
+    "purging": "Emptying…",
+    "purged": "Deleted permanently",
+    "purgeFailed": "Could not delete permanently",
+    "purgeConfirm": "{{scope}}: the files are removed for good and cannot be recovered. Continue?"
   },
   "coverTheme": {
     "settingLabel": "Follow cover colors",

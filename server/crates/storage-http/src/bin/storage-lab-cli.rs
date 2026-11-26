@@ -19,7 +19,11 @@ use serde_json::{json, Value};
 use storage_host::core::error::Error;
 use storage_host::host::{Host, HostOptions};
 
-const COMMANDS: &[&str] = &["scan", "import", "backup", "restore", "export", "verify", "download", "legacy"];
+const COMMANDS: &[&str] = &[
+    "scan", "import", "backup", "restore", "export", "verify", "download", "legacy",
+    "trash-list", "trash-restore", "trash-purge",
+];
+
 
 struct Args {
     command: Option<String>,
@@ -241,6 +245,27 @@ fn run(args: &Args, command: &str) -> Result<(bool, Value), Error> {
                     "resumed": migrated.resumed,
                 })))
             }
+            "trash-list" => {
+                let listing = host.list_trash()?;
+                Ok((true, json!({ "ok": true, "command": command, "trash": listing })))
+            }
+            "trash-restore" => {
+                let ids = work_ids(args)?;
+                let restored = host.restore_works(&ids)?;
+                let ok = restored.get("restored").and_then(Value::as_u64).unwrap_or(0) == ids.len() as u64;
+                Ok((ok, json!({ "ok": ok, "command": command, "restore": restored })))
+            }
+            "trash-purge" => {
+                // No `--work` means "empty the trash", which is the common case;
+                // requiring an id for that would make the one destructive action
+                // harder to reach than the reversible one.
+                let ids = optional_work_ids(args)?;
+                let purged = host.purge_trash(&ids)?;
+                let ok = purged.get("works").and_then(Value::as_array).map(|items| {
+                    items.iter().all(|item| item.get("ok").and_then(Value::as_bool) == Some(true))
+                }).unwrap_or(false);
+                Ok((ok, json!({ "ok": ok, "command": command, "purge": purged })))
+            }
             "verify" => {
                 let verification = host.verify()?;
                 let ok = verification.get("ok").and_then(Value::as_bool) == Some(true);
@@ -253,6 +278,27 @@ fn run(args: &Args, command: &str) -> Result<(bool, Value), Error> {
     let outcome = outcome?;
     closed?;
     Ok(outcome)
+}
+
+/// Work ids from `--work a,b` or the positional arguments.
+fn optional_work_ids(args: &Args) -> Result<Vec<String>, Error> {
+    let mut ids: Vec<String> = Vec::new();
+    let raw = args.options.get("work").cloned().unwrap_or_default();
+    for value in raw.split(',').chain(args.candidates.iter().map(String::as_str)) {
+        let trimmed = value.trim();
+        if !trimmed.is_empty() && !ids.iter().any(|id| id == trimmed) {
+            ids.push(trimmed.to_string());
+        }
+    }
+    Ok(ids)
+}
+
+fn work_ids(args: &Args) -> Result<Vec<String>, Error> {
+    let ids = optional_work_ids(args)?;
+    if ids.is_empty() {
+        return Err(Error::new("--work <id> (or positional ids) is required"));
+    }
+    Ok(ids)
 }
 
 // Thin adapters from the CLI's option shapes to the library API.
@@ -270,7 +316,7 @@ fn restore(backup: &Path, destination: &Path) -> Result<Value, Error> {
 }
 
 fn export(host: &mut Host, work: &str, destination: &Path, friendly: &str) -> Result<Value, Error> {
-    host.library.export_work(work, destination, Some(friendly))
+    host.library.export_work(work, destination, Some(friendly), host.source_root.as_deref())
 }
 
 fn main() -> ExitCode {

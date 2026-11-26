@@ -25,7 +25,7 @@ pub struct SnapshotPaths {
 }
 
 pub fn snapshot_paths(data_root: &Path, work_id: &str) -> SnapshotPaths {
-    let directory = data_root.join("works").join(work_id);
+    let directory = crate::layout::snapshots_root(data_root).join(work_id);
     SnapshotPaths {
         work_json: directory.join("work.json"),
         manifest_json: directory.join("manifest.json"),

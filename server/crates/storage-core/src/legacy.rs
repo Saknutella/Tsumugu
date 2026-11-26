@@ -11,7 +11,7 @@
 //! is why [`js_stringify`] reproduces JSON.stringify's key and number rules
 //! instead of using `serde_json::to_string` directly.
 //!
-//! Deviation D17 (docs/18-rust-backend.md): Node counted every *attempted*
+//! Deviation D17 (docs/18-server.md): Node counted every *attempted*
 //! media-ref insert and re-inserted cover refs on resume (`entry_id IS NULL`
 //! never collides in a UNIQUE index). Rust counts rows actually inserted and
 //! skips an existing cover ref.
@@ -734,7 +734,11 @@ mod tests {
     use super::*;
     use crate::library::OpenOptions;
 
-    const FIXTURE: &str = include_str!("../../../../verify/storage-lab/fixtures/s4b/legacy-bundle.json");
+    // The fixture lives inside the crate, not under `verify/`: that directory is
+    // not published, so `include_str!` pointing into it made the test module
+    // uncompilable in the standalone repository. A test's data belongs with the
+    // test.
+    const FIXTURE: &str = include_str!("../tests/fixtures/legacy-bundle.json");
 
     fn open(tag: &str) -> (Library, std::path::PathBuf) {
         let base = std::env::temp_dir().join(format!("mono-legacy-{tag}-{}", uuid::Uuid::new_v4()));

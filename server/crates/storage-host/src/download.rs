@@ -416,8 +416,11 @@ impl DownloadTask {
         let (sha256, _) = hash_file(&self.part_path)?;
         let entry = resolve_entry(library, &self.entry_id)?
             .ok_or_else(|| Error::new("entry not found for download commit"))?;
-        let rel_path = format!("assets/sha256/{}/{sha256}", &sha256[..2]);
-        let destination = library.data_root.join("assets").join("sha256").join(&sha256[..2]).join(&sha256);
+        let rel_path = format!("{}/{}/{sha256}", storage_core::layout::CAS_PREFIX, &sha256[..2]);
+        let destination = storage_core::layout::derived_root(&library.data_root)
+            .join("sha256")
+            .join(&sha256[..2])
+            .join(&sha256);
         if let Some(parent) = destination.parent() {
             std::fs::create_dir_all(parent)?;
         }
@@ -525,7 +528,7 @@ pub fn begin_download(library: &Library, entry_id: &str, options: &BeginOptions)
             &uuid::Uuid::new_v4().simple().to_string()[..12]
         )
     });
-    let tmp = library.data_root.join("tmp");
+    let tmp = storage_core::layout::staging_root(&library.data_root);
     let part_path = tmp.join(format!("{task_id}.part"));
     if !paths::is_inside(&tmp, &part_path) {
         return Err(Error::new("invalid download temp path"));
@@ -596,7 +599,7 @@ pub fn load_download(library: &Library, task_id: &str) -> Result<Option<Download
     };
     let part_path = part_path
         .map(PathBuf::from)
-        .unwrap_or_else(|| library.data_root.join("tmp").join(format!("download-{task_id}.part")));
+        .unwrap_or_else(|| storage_core::layout::staging_root(&library.data_root).join(format!("download-{task_id}.part")));
     let meta = read_meta(&part_path).unwrap_or(Value::Null);
     let text = |key: &str| meta.get(key).and_then(Value::as_str).unwrap_or("").to_string();
     let mut task = DownloadTask {
@@ -768,7 +771,10 @@ mod tests {
         assert_eq!(result["status"], "completed");
         assert_eq!(result["sha256"], sha(&body));
         let digest = sha(&body);
-        let cas = library.data_root.join("assets").join("sha256").join(&digest[..2]).join(&digest);
+        let cas = storage_core::layout::derived_root(&library.data_root)
+            .join("sha256")
+            .join(&digest[..2])
+            .join(&digest);
         assert_eq!(std::fs::read(&cas).unwrap(), body);
         let refs: i64 = library
             .connection

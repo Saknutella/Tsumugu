@@ -198,7 +198,7 @@ mod tests {
         let saved = import(&mut host, &body, "video").unwrap();
         let id = saved["postId"].as_str().unwrap();
         assert_eq!(host.get_post(id).unwrap()["category"], "video");
-        assert!(saved["rootPath"].as_str().unwrap().starts_with("Videos/"), "{saved}");
+        assert!(saved["rootPath"].as_str().unwrap().starts_with("videos/"), "{saved}");
 
         let detail = get(&host, id, "video").unwrap();
         assert!(detail["bodyHtml"].as_str().unwrap().contains("hello body"), "{detail}");

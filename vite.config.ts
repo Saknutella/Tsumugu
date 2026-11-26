@@ -12,6 +12,29 @@ import { playwright } from '@vitest/browser-playwright';
 import { execSync } from 'child_process';
 import { createWatchIgnore } from './watch-roots.mjs';
 
+/** 与源码分类无关的运行期临时产物,单独一批;仍走同一套忽略机制。 */
+const WATCH_EXTRAS = ['**/.*.tmpdir/**', '**/*.tmpdir/**', '**/.cache/**', '**/artifacts/**'];
+
+/**
+ * 让 watcher 的 error 事件永远不会掀掉进程。
+ *
+ * WHY: chokidar 打到被占用的文件时 `emit('error', EBUSY)`;EventEmitter 上没有
+ * `error` 监听器时 Node 会直接抛,整个 dev server 退出。一个瞬时锁文件就毁掉
+ * 整次上传会话(代理没了 → `failed to fetch`)。这里只降级为一条警告。
+ */
+function watchErrorGuard() {
+    return {
+        name: 'watch-error-guard',
+        configureServer(server: { watcher: NodeJS.EventEmitter; config: { logger: { warn: (msg: string) => void } } }) {
+            server.watcher.on('error', (error: NodeJS.ErrnoException) => {
+                server.config.logger.warn(
+                    `[watch] 忽略一次文件监听错误(${error?.code || error?.message});dev server 继续运行`,
+                );
+            });
+        },
+    };
+}
+
 function proxyAudioPlugin() {
     return {
         name: 'proxy-audio-dev',
@@ -27,25 +50,6 @@ function getGitCommitHash() {
     } catch {
         return 'unknown';
     }
-}
-
-/**
- * 让 watcher 的 error 事件永远不会掀掉进程。
- *
- * chokidar 打到被占用的文件时 `emit('error', EBUSY)`;EventEmitter 上没有 `error`
- * 监听器时 Node 会直接抛,整个 dev server 退出 —— 上传/下载写到被监听目录时必现。
- */
-function watchErrorGuard() {
-    return {
-        name: 'watch-error-guard',
-        configureServer(server: { watcher: NodeJS.EventEmitter; config: { logger: { warn: (msg: string) => void } } }) {
-            server.watcher.on('error', (error: NodeJS.ErrnoException) => {
-                server.config.logger.warn(
-                    `[watch] 忽略一次文件监听错误(${error?.code || error?.message});dev server 继续运行`,
-                );
-            });
-        },
-    };
 }
 
 export default defineConfig(({ mode }) => {
@@ -96,10 +100,10 @@ export default defineConfig(({ mode }) => {
             include: ['workbox-window', '@sentry/browser', '@capacitor/haptics', 'fuse.js'],
         },
         server: {
-            // Dev bridge to the bundled file-library host (`scripts/dev-web.mjs`).
+            // Dev-only bridge to a local storage host (`scripts/dev-web.mjs`).
             // `connectWebBackend()` already probes `/storage` as a candidate, so a
             // same-origin proxy is enough — and unlike a `?storage=` query string it
-            // survives a page reload, which HMR does constantly.
+            // survives a page reload, which is what makes HMR iteration work.
             ...(process.env.MONOCHROME_DEV_STORAGE_TARGET
                 ? {
                       proxy: {
@@ -117,16 +121,11 @@ export default defineConfig(({ mode }) => {
                 // allowedHosts: ['<your_tailscale_hostname>'], // e.g. pi5.tailf5f622.ts.net
             },
             watch: {
-                // 只监听浏览器源码(见 watch-roots.mjs)。以前是黑名单:数据目录、后端源码
-                // 都在监听范围内,而 dev loop 上传正是往 `data/` 里写 —— Windows 上
-                // 文件被占用时 chokidar 抛 EBUSY,把整个 dev server 打挂。
-                ignored: [
-                    createWatchIgnore(__dirname),
-                    '**/.*.tmpdir/**',
-                    '**/*.tmpdir/**',
-                    '**/.cache/**',
-                    '**/artifacts/**',
-                ],
+                // 浏览器源码之外的根级目录一律不监听(见 watch-roots.mjs)。以前是一串
+                // 「别监听这里」的黑名单;语料换个位置就会重新被爬,而 Windows 上某个
+                // 文件正被占用时 chokidar 抛 `EBUSY`,把整个 dev server 打挂 —— 上传
+                // 线程正在读源 wav 时必现,表现就是 `failed to fetch`。
+                ignored: [createWatchIgnore(__dirname), ...WATCH_EXTRAS],
             },
         },
         // preview: {

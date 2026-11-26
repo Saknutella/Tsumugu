@@ -16,6 +16,7 @@ use std::path::{Path, PathBuf};
 use storage_core::error::{Error, Result};
 use storage_core::hash::sha256_text;
 use storage_core::jsonutil::now_iso;
+use storage_core::layout;
 use storage_core::library::{ImportOutcome, Library, MergeOutcome, SourceRecord};
 use storage_core::paths;
 use rusqlite::OptionalExtension;
@@ -229,7 +230,16 @@ fn validate_entry_file(root: &Path, absolute_path: &Path, _logical_path: &str) -
 /// Build the S1 source record from a candidate.
 ///
 /// Pure except for read-only validation: it does not copy or hash bytes.
-pub fn source_record_from_candidate(candidate: &Candidate, allowed_roots: &[PathBuf]) -> Result<SourceRecord> {
+///
+/// `source_root` decides how each entry is *stored*: inside the source root the
+/// value becomes relative, so the library still resolves after the data folder is
+/// moved, while the absolute path travels alongside it as `absolutePath` because
+/// the import still has to open the file. See `SourceEntry::read_path`.
+pub fn source_record_from_candidate(
+    candidate: &Candidate,
+    allowed_roots: &[PathBuf],
+    source_root: &Path,
+) -> Result<SourceRecord> {
     let root = validate_candidate_root(&candidate.root_path)?;
     if !allowed_roots.iter().any(|allowed| paths::is_inside(allowed, &root)) {
         return Err(Error::outside(format!(
@@ -251,7 +261,8 @@ pub fn source_record_from_candidate(candidate: &Candidate, allowed_roots: &[Path
             "entryId": deterministic_entry_id(&logical_path),
             "logicalPath": logical_path.clone(),
             "kind": if entry.kind.is_empty() { "file".to_string() } else { entry.kind.clone() },
-            "sourcePath": absolute.to_string_lossy(),
+            "sourcePath": layout::stored_source_path(source_root, &absolute),
+            "absolutePath": absolute.to_string_lossy(),
             "mime": mime_for(if entry.name.is_empty() { &logical_path } else { &entry.name }),
             "trackKey": entry.track_key,
             "format": entry.format,
@@ -299,7 +310,8 @@ pub fn source_record_from_candidate(candidate: &Candidate, allowed_roots: &[Path
             "entryId": deterministic_entry_id(&cover_logical),
             "logicalPath": cover_logical,
             "kind": "cover",
-            "sourcePath": cover_path.to_string_lossy(),
+            "sourcePath": layout::stored_source_path(source_root, &cover_path),
+            "absolutePath": cover_path.to_string_lossy(),
             "mime": cover_mime,
         }));
     }
@@ -430,13 +442,18 @@ pub struct IngestOutcome {
 }
 
 /// Ingest one candidate: merge into an existing work, or import a new one.
+///
+/// `source_root` is what turns an entry's absolute path into the stored relative
+/// form; it is required rather than defaulted, because guessing a root would
+/// either pin machine paths or (worse) relativise against the wrong tree.
 pub fn ingest_candidate(
     library: &mut Library,
     candidate: &Candidate,
     idempotency_key: Option<&str>,
     allowed_roots: &[PathBuf],
+    source_root: &Path,
 ) -> Result<IngestOutcome> {
-    let record = source_record_from_candidate(candidate, allowed_roots)?;
+    let record = source_record_from_candidate(candidate, allowed_roots, source_root)?;
     let key = idempotency_key
         .map(str::to_string)
         .unwrap_or_else(|| format!("local:import:{}", if candidate.candidate_id.is_empty() { &candidate.relative_root } else { &candidate.candidate_id }));
@@ -586,7 +603,7 @@ mod tests {
     #[test]
     fn title_is_display_clean_but_identity_keeps_rj() {
         let (mut library, source) = fixture();
-        let outcome = ingest_candidate(&mut library, &candidate(&source), None, &[source.clone()]).unwrap();
+        let outcome = ingest_candidate(&mut library, &candidate(&source), None, &[source.clone()], &source).unwrap();
         assert_eq!(outcome.work["title"], "title");
         // Identity still comes from the RJ code, never from the cleaned title.
         let code: String = library
@@ -596,12 +613,60 @@ mod tests {
         assert_eq!(code, "RJ01678051");
     }
 
+    /// Phase 2a: the row stores the path relative to the source root, so the
+    /// library can be copied elsewhere, while the snapshot beside it carries the
+    /// same relative value. Only the import's own `absolutePath` is machine-bound,
+    /// and that one is never persisted.
+    #[test]
+    fn entries_are_stored_relative_to_the_source_root() {
+        let (mut library, source) = fixture();
+        let relative_root = "[RJ01678051] [Circle] title (CV A)";
+        let outcome = ingest_candidate(&mut library, &candidate(&source), None, &[source.clone()], &source).unwrap();
+        assert!(!outcome.idempotent);
+        let original: String = library
+            .connection
+            .query_row("SELECT original_path FROM entry LIMIT 1", [], |row| row.get(0))
+            .unwrap();
+        assert_eq!(original, format!("{relative_root}/01.mp3"));
+        // The snapshot must not pin the machine path either.
+        let snapshot: String = library
+            .connection
+            .query_row("SELECT snapshot_json FROM source_ref LIMIT 1", [], |row| row.get(0))
+            .unwrap();
+        assert!(snapshot.contains(&format!("\"sourcePath\":\"{relative_root}/01.mp3\"")), "{snapshot}");
+    }
+
+    /// A file outside the configured source root keeps its absolute path: the user
+    /// put those bytes elsewhere, and rewriting them relative would point at
+    /// nothing on the next read.
+    #[test]
+    fn entries_outside_the_source_root_stay_absolute() {
+        let (mut library, source) = fixture();
+        let elsewhere = std::env::temp_dir().join(format!("mono-ingest-elsewhere-{}", uuid::Uuid::new_v4()));
+        std::fs::create_dir_all(&elsewhere).unwrap();
+        let file = elsewhere.join("01.mp3");
+        std::fs::write(&file, b"audio-bytes").unwrap();
+        let mut outside = candidate(&source);
+        // The candidate root still has to be authorized; only the file moves out
+        // of the *source root* passed for storage.
+        outside.entries[0].absolute_path = file.clone();
+        outside.root_path = elsewhere.clone();
+        outside.relative_root = "elsewhere".to_string();
+        outside.candidate_id = "local:elsewhere".to_string();
+        ingest_candidate(&mut library, &outside, None, &[elsewhere.clone()], &source).unwrap();
+        let original: String = library
+            .connection
+            .query_row("SELECT original_path FROM entry LIMIT 1", [], |row| row.get(0))
+            .unwrap();
+        assert_eq!(std::path::Path::new(&original), file.as_path());
+    }
+
     #[test]
     fn rescan_merges_instead_of_importing_twice() {
         let (mut library, source) = fixture();
-        let first = ingest_candidate(&mut library, &candidate(&source), None, &[source.clone()]).unwrap();
+        let first = ingest_candidate(&mut library, &candidate(&source), None, &[source.clone()], &source).unwrap();
         let work_id = first.work["workId"].as_str().unwrap().to_string();
-        let second = ingest_candidate(&mut library, &candidate(&source), None, &[source.clone()]).unwrap();
+        let second = ingest_candidate(&mut library, &candidate(&source), None, &[source.clone()], &source).unwrap();
         assert_eq!(second.work["workId"], work_id);
         let merge = second.merge.expect("rescan must merge");
         assert!(!merge.changed);
@@ -619,7 +684,7 @@ mod tests {
         let mut bad = candidate(&source);
         bad.entries[0].absolute_path = source.join("elsewhere.mp3");
         std::fs::write(source.join("elsewhere.mp3"), b"x").unwrap();
-        let error = ingest_candidate(&mut library, &bad, None, &[source.clone()]).unwrap_err();
+        let error = ingest_candidate(&mut library, &bad, None, &[source.clone()], &source).unwrap_err();
         assert!(error.message.contains("entry escapes candidate root"), "{}", error.message);
     }
 
@@ -627,7 +692,7 @@ mod tests {
     fn unauthorized_root_is_rejected() {
         let (mut library, source) = fixture();
         let other = std::env::temp_dir().join(format!("mono-ingest-other-{}", uuid::Uuid::new_v4()));
-        let error = ingest_candidate(&mut library, &candidate(&source), None, &[other]).unwrap_err();
+        let error = ingest_candidate(&mut library, &candidate(&source), None, &[other], &source).unwrap_err();
         assert_eq!(error.code, Some("EOUTSIDE"));
     }
 

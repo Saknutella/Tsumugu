@@ -162,16 +162,15 @@ fn copy_document_asset(
     };
     let logical_path = validate_logical_path(&logical)?;
 
-    let temp = data_root
-        .join("tmp")
+    let temp = crate::layout::staging_root(data_root)
         .join(format!("document-{}-{index}.part", uuid::Uuid::new_v4()));
     if let Some(parent) = temp.parent() {
         std::fs::create_dir_all(parent)?;
     }
     let (sha256, bytes) = copy_to_temp_and_hash(&absolute, &temp, false, None)?;
-    let rel_path = format!("assets/sha256/{}/{}", &sha256[..2], sha256);
+    let rel_path = format!("{}/{}/{}", crate::layout::CAS_PREFIX, &sha256[..2], sha256);
     let destination = data_root.join(rel_path.replace('/', std::path::MAIN_SEPARATOR_STR));
-    if !paths::is_inside(&data_root.join("assets"), &destination) {
+    if !paths::is_inside(&crate::layout::derived_root(data_root), &destination) {
         let _ = std::fs::remove_file(&temp);
         return Err(Error::new("document asset escaped CAS"));
     }
@@ -600,7 +599,7 @@ mod tests {
             )
             .unwrap();
         let root = std::env::temp_dir().join(format!("mono-doc-{}", uuid::Uuid::new_v4()));
-        let data_root = root.join("data");
+        let data_root = root.clone();
         let source = root.join("source");
         std::fs::create_dir_all(&data_root).unwrap();
         std::fs::create_dir_all(&source).unwrap();

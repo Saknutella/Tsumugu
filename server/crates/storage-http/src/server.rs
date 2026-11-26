@@ -183,7 +183,8 @@ fn cors_headers(builder: hyper::http::response::Builder) -> hyper::http::respons
 const API_ROUTES: &[&str] = &[
     "/api/scan", "/api/import", "/api/import/status", "/api/move", "/api/import/file",
     "/api/import-temp/cleanup", "/api/works/open", "/api/works/normalize-root",
-    "/api/works/delete-files", "/api/works/delete", "/api/works/metadata", "/api/voices/bundle",
+    "/api/works/delete-files", "/api/works/delete", "/api/works/restore", "/api/works/metadata",
+    "/api/trash", "/api/trash/purge", "/api/voices/bundle",
     "/api/voices/reconcile", "/api/works/cover", "/api/upload",
     "/api/creations/upload", "/api/creations/import", "/api/creations/delete",
     "/api/creations/delete-asset", "/api/creations", "/api/cleanup/preview", "/api/cleanup",
@@ -341,6 +342,13 @@ async fn handle(state: Arc<State>, request: Request<Incoming>, peer: SocketAddr)
         return blocking_json_raw(state, |host| host.cleanup_preview().map(payload_response)).await;
     }
 
+    if path == "/api/trash" {
+        if method != Method::GET {
+            return send_error(StatusCode::METHOD_NOT_ALLOWED, "EMETHODNOTALLOWED", "method not allowed");
+        }
+        return blocking_json_raw(state, |host| host.list_trash().map(payload_response)).await;
+    }
+
     if path == "/api/import/status" {
         if method != Method::GET {
             return send_error(StatusCode::METHOD_NOT_ALLOWED, "EMETHODNOTALLOWED", "method not allowed");
@@ -460,7 +468,12 @@ async fn handle(state: Arc<State>, request: Request<Incoming>, peer: SocketAddr)
         let state_for_read = Arc::clone(&state);
         let result = tokio::task::spawn_blocking(move || {
             let host = state_for_read.host.lock().map_err(|_| HostError::new("host lock poisoned"))?;
-            let asset = storage_core::creations::read_asset(&host.library.connection, &host.library.root, &asset_id)?;
+            let asset = storage_core::creations::read_asset(
+                &host.library.connection,
+                &host.library.root,
+                host.source_root.as_deref(),
+                &asset_id,
+            )?;
             Ok::<_, HostError>(asset)
         })
         .await;
@@ -873,6 +886,10 @@ async fn handle_upload(state: Arc<State>, request: Request<Incoming>) -> Respons
     {
         return reject_upload(request, StatusCode::BAD_REQUEST, "EPATHDENIED", "relative path is not allowed").await;
     }
+    // Every write into the source root lands under its type directory (`voices/`
+    // for a bare path). Clients stay layout-agnostic; the response echoes the
+    // effective path so a caller can scan what it just wrote.
+    let relative = storage_core::layout::normalize_source_relative(&relative);
     let target = storage_core::paths::resolve_lexical(
         &source_root.join(relative.replace('/', std::path::MAIN_SEPARATOR_STR)),
     );
@@ -1005,6 +1022,7 @@ async fn handle_creation_upload(state: Arc<State>, request: Request<Incoming>) -
         storage_core::creations::save_asset(
             &host.library.connection,
             &host.library.root,
+            host.source_root.as_deref(),
             &post_id,
             &attachment_id,
             &role,
@@ -1237,6 +1255,7 @@ fn dispatch_post(host: &mut Host, path: &str, body: Map<String, Value>) -> Resul
                 let removed = storage_core::creations::delete_post(
                     &host.library.connection,
                     &host.library.root,
+                    host.source_root.as_deref(),
                     &post_id,
                 )?;
                 deleted.push(json!({ "postId": post_id, "deleted": removed }));
@@ -1248,6 +1267,7 @@ fn dispatch_post(host: &mut Host, path: &str, body: Map<String, Value>) -> Resul
             let deleted = storage_core::creations::delete_asset(
                 &host.library.connection,
                 &host.library.root,
+                host.source_root.as_deref(),
                 &asset_id,
             )?;
             Ok((StatusCode::OK, json!({ "ok": true, "result": { "assetId": asset_id, "deleted": deleted } })))
@@ -1395,11 +1415,21 @@ fn dispatch_post(host: &mut Host, path: &str, body: Map<String, Value>) -> Resul
                 .source_root
                 .clone()
                 .ok_or_else(|| HostError::path_denied("source is not configured on this host"))?;
+            // Both ends are source-relative. Normalising both keeps a caller that
+            // used a bare work root coherent: the staging write went through
+            // `/api/upload` (also normalised), so it is already under the type
+            // directory — and an already-prefixed path passes through unchanged.
             let from = storage_core::paths::resolve_lexical(
-                &source_root.join(require_string(&body, "from")?.replace('/', std::path::MAIN_SEPARATOR_STR)),
+                &source_root.join(
+                    storage_core::layout::normalize_source_relative(&require_string(&body, "from")?)
+                        .replace('/', std::path::MAIN_SEPARATOR_STR),
+                ),
             );
             let to = storage_core::paths::resolve_lexical(
-                &source_root.join(require_string(&body, "to")?.replace('/', std::path::MAIN_SEPARATOR_STR)),
+                &source_root.join(
+                    storage_core::layout::normalize_source_relative(&require_string(&body, "to")?)
+                        .replace('/', std::path::MAIN_SEPARATOR_STR),
+                ),
             );
             for target in [&from, &to] {
                 if target != &source_root && !storage_core::paths::is_inside(&source_root, target) {
@@ -1482,6 +1512,24 @@ fn dispatch_post(host: &mut Host, path: &str, body: Map<String, Value>) -> Resul
             let payload = host.delete_works(&work_ids)?;
             Ok(payload_response(payload))
         }
+        "/api/works/restore" => {
+            let work_ids: Vec<String> = body
+                .get("workIds")
+                .and_then(Value::as_array)
+                .map(|items| items.iter().map(js_string).collect())
+                .unwrap_or_default();
+            let payload = host.restore_works(&work_ids)?;
+            Ok(payload_response(payload))
+        }
+        "/api/trash/purge" => {
+            let work_ids: Vec<String> = body
+                .get("workIds")
+                .and_then(Value::as_array)
+                .map(|items| items.iter().map(js_string).collect())
+                .unwrap_or_default();
+            let payload = host.purge_trash(&work_ids)?;
+            Ok(payload_response(payload))
+        }
         "/api/cleanup" => {
             let work_ids: Vec<String> = body
                 .get("workIds")
@@ -1544,7 +1592,7 @@ fn dispatch_post(host: &mut Host, path: &str, body: Map<String, Value>) -> Resul
             let destination = require_string(&body, "destination")?;
             let friendly = body.get("friendlyName").filter(|value| !value.is_null()).map(js_string);
             let destination = host.confine_to_experiment(Path::new(&destination))?;
-            Ok(payload_response(host.library.export_work(&work_id, &destination, friendly.as_deref())?))
+            Ok(payload_response(host.library.export_work(&work_id, &destination, friendly.as_deref(), host.source_root.as_deref())?))
         }
         _ => Err(HostError::not_found("not found")),
     }
@@ -1650,25 +1698,28 @@ mod tests {
     }
 
     /// Synthetic source root: one audio work, one creation, one other video.
+    ///
+    /// Layout v2 shape: the voice work lives under `voices/` — a flat one would be
+    /// moved there by the host's own source migration before the test asserted.
     fn seed(root: &Path) {
-        std::fs::create_dir_all(root.join("RJ000001/.monochrome")).unwrap();
-        std::fs::write(root.join("RJ000001/track01.mp3"), b"audio").unwrap();
-        std::fs::write(root.join("RJ000001/.monochrome/metadata.json"), b"{\"work\":\"RJ000001\"}").unwrap();
-        std::fs::create_dir_all(root.join("Creations/Patreon/C/post [1]")).unwrap();
-        std::fs::write(root.join("Creations/Patreon/C/post [1]/a.jpg"), b"img").unwrap();
-        std::fs::create_dir_all(root.join("Videos/YouTube/Other/2026-01-01 keep [k]")).unwrap();
-        std::fs::write(root.join("Videos/YouTube/Other/2026-01-01 keep [k]/keep.mp4"), b"keep").unwrap();
+        std::fs::create_dir_all(root.join("voices/RJ000001/.monochrome")).unwrap();
+        std::fs::write(root.join("voices/RJ000001/track01.mp3"), b"audio").unwrap();
+        std::fs::write(root.join("voices/RJ000001/.monochrome/metadata.json"), b"{\"work\":\"RJ000001\"}").unwrap();
+        std::fs::create_dir_all(root.join("creations/Patreon/C/post [1]")).unwrap();
+        std::fs::write(root.join("creations/Patreon/C/post [1]/a.jpg"), b"img").unwrap();
+        std::fs::create_dir_all(root.join("videos/YouTube/Other/2026-01-01 keep [k]")).unwrap();
+        std::fs::write(root.join("videos/YouTube/Other/2026-01-01 keep [k]/keep.mp4"), b"keep").unwrap();
     }
 
     fn assert_seed_intact(root: &Path, label: &str) {
-        assert!(root.join("RJ000001/track01.mp3").exists(), "{label}: audio track deleted");
+        assert!(root.join("voices/RJ000001/track01.mp3").exists(), "{label}: audio track deleted");
         assert_eq!(
-            std::fs::read(root.join("RJ000001/.monochrome/metadata.json")).unwrap(),
+            std::fs::read(root.join("voices/RJ000001/.monochrome/metadata.json")).unwrap(),
             b"{\"work\":\"RJ000001\"}",
             "{label}: audio sidecar overwritten"
         );
-        assert!(root.join("Creations/Patreon/C/post [1]/a.jpg").exists(), "{label}: creation deleted");
-        assert!(root.join("Videos/YouTube/Other/2026-01-01 keep [k]/keep.mp4").exists(), "{label}: other video deleted");
+        assert!(root.join("creations/Patreon/C/post [1]/a.jpg").exists(), "{label}: creation deleted");
+        assert!(root.join("videos/YouTube/Other/2026-01-01 keep [k]/keep.mp4").exists(), "{label}: other video deleted");
     }
 
     #[test]
@@ -1685,10 +1736,10 @@ mod tests {
             ".",
             "",
             "Videos",
-            "Videos/..",
+            "videos/..",
             "RJ000001",
-            "Creations/Patreon/C/post [1]",
-            "Videos/YouTube/Other/2026-01-01 keep [k]",
+            "creations/Patreon/C/post [1]",
+            "videos/YouTube/Other/2026-01-01 keep [k]",
         ]
         .iter()
         .enumerate()
@@ -1706,7 +1757,7 @@ mod tests {
             assert_eq!(status, StatusCode::OK);
             let result = &imported["result"];
             let stored = result["rootPath"].as_str().unwrap();
-            assert!(stored.starts_with("Videos/youtube/Chan/"), "{supplied:?} -> {stored}");
+            assert!(stored.starts_with("videos/youtube/Chan/"), "{supplied:?} -> {stored}");
             assert_seed_intact(&root, &format!("import {supplied:?}"));
 
             let post_id = result["postId"].as_str().unwrap().to_string();
@@ -1881,6 +1932,7 @@ mod tests {
         let asset = storage_core::creations::save_asset(
             &host.library.connection,
             &host.library.root,
+            host.source_root.as_deref(),
             "post-cors",
             "att-1",
             "original",

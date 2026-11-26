@@ -1602,7 +1602,32 @@ async function deleteStorageWorks(workIds) {
     // `.monochrome` is what the user then sees in their library.
     const folderLeft = entries.filter((entry) => entry.deleted === true && entry.folderRemoved === false).length;
     await refresh();
-    return { count: resolved.length, folderLeft, unresolved };
+    // `ids` is the host's own id for each deleted work: the caller needs them to
+    // offer an undo, and the values it passed in may be album ids (`voice-RJ…`).
+    return { count: resolved.length, folderLeft, unresolved, ids: resolved };
+}
+
+async function listTrash() {
+    await ensureHost();
+    // `api()` sends GET when the body is omitted. A host that predates the route
+    // answers 404, which surfaces as an error; the caller decides what to show.
+    const response = await api('/api/trash');
+    return response.result || { entries: [], total: 0, bytes: 0 };
+}
+
+async function restoreStorageWorks(workIds) {
+    if (!Array.isArray(workIds) || workIds.length === 0) return { restored: 0, works: [] };
+    await ensureHost();
+    const response = await api('/api/works/restore', { workIds });
+    await refresh();
+    return response.result || { restored: 0, works: [] };
+}
+
+async function purgeStorageTrash(workIds = []) {
+    await ensureHost();
+    const response = await api('/api/trash/purge', { workIds: Array.isArray(workIds) ? workIds : [] });
+    await refresh();
+    return response.result || { purged: 0, works: [] };
 }
 
 async function deleteStorageFiles(workId, paths) {
@@ -1715,6 +1740,11 @@ window.__monochromeFileStorage = {
     isFileWorkAsync,
     deleteWorks: deleteStorageWorks,
     deleteFiles: deleteStorageFiles,
+    // Delete is reversible: the folder moves to `<data>/trash/<work id>/` and the
+    // row is soft-deleted, so these three are the undo path.
+    listTrash,
+    restoreWorks: restoreStorageWorks,
+    purgeTrash: purgeStorageTrash,
     openLocation: openStorageWorkLocation,
     // Shape adapters, exposed for the browser probes: they are pure functions of
     // the host work, so a probe can assert the metadata the card and the sidecar

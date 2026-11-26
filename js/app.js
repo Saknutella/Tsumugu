@@ -72,6 +72,7 @@ import { initializeCreationsPage } from './creations.js';
 import { initializeVoicesPage, initializeVoiceStreamRefresh } from './voices.js';
 import { initializeFileStorage } from './file-storage.js';
 import { initializeVideosPage } from './videos.js';
+import { initializeTrashPage } from './trash.js';
 import { initializeLayoutControls } from './layout-controls.js';
 
 // i18n 资源是随包内联的 JSON,初始化不需要网络;在 DOMContentLoaded 里再应用翻译。
@@ -458,6 +459,7 @@ document.addEventListener('DOMContentLoaded', async () => {
     // Tauri-only: SQLite/CAS sidecar is the real file store for imported voices.
     void initializeFileStorage();
     initializeVideosPage();
+    initializeTrashPage();
     initializeLayoutControls();
 
     // 语言选择器属于核心壳:不依赖懒加载的 settings 模块,避免它被网络初始化拖住。

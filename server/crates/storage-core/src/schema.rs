@@ -10,20 +10,25 @@ use rusqlite::{Connection, OptionalExtension};
 use crate::error::{Error, Result};
 use crate::jsonutil::now_iso;
 
-/// Must equal `SCHEMA_VERSION` in `verify/storage-lab/lib/schema.mjs`.
+/// Bumped whenever the table or constraint set changes.
 ///
 /// v8 adds the four post tables (`creator`/`post`/`post_file`/`post_tag`) that
-/// back creations and videos; the audio tables are unchanged. The Node host stays
-/// on v7, so it refuses a v8 database — that is deliberate: it keeps an old Node
-/// build from writing a library whose post tables it cannot maintain (see
-/// `docs/handoff/343`). Bump this in lockstep with `schema.mjs` once the host
-/// learns v8.
+/// back creations and videos; the audio tables are unchanged.
+///
+/// v9 removes the two `UNIQUE` constraints on `asset` (`sha256`, `rel_path`).
+/// They encoded "one blob is one asset", which the source-only import already
+/// violates by design: its `rel_path` is the virtual marker `source/<sha256>`
+/// and its `asset_id` *is* the hash, so a second work containing the same file
+/// collided on either constraint. The accepted rule is one copy per work, not
+/// one copy per library, so the same bytes may be recorded more than once.
+/// Only `asset_id PRIMARY KEY` identifies a row. `CREATE TABLE IF NOT EXISTS`
+/// cannot drop a constraint, so [`apply_schema`] rebuilds a pre-v9 table.
 ///
 /// v7 → v8 只新增 post 表，不迁移 creation_post；创作在前端改造前继续走旧表
 /// (`/api/creations*` reads `creation_post`/`creation_asset`; copying them into
 /// `post` would store every creation twice and let a delete through one API
 /// leave the other copy behind).
-pub const SCHEMA_VERSION: i64 = 8;
+pub const SCHEMA_VERSION: i64 = 9;
 
 /// Import-job statuses accepted by the `import_job.status` CHECK constraint.
 const IMPORTS_JOB_STATUSES: &str = "'created','scanning','preview_ready','staging','publishing_assets','committing','committed','snapshot_pending','snapshot_failed','completed','failed_precommit','cancelled_precommit'";
@@ -117,10 +122,10 @@ CREATE TABLE IF NOT EXISTS track_rendition (
 
 CREATE TABLE IF NOT EXISTS asset (
     asset_id TEXT PRIMARY KEY,
-    sha256 TEXT NOT NULL UNIQUE,
+    sha256 TEXT NOT NULL,
     bytes INTEGER NOT NULL CHECK (bytes >= 0),
     mime TEXT,
-    rel_path TEXT NOT NULL UNIQUE,
+    rel_path TEXT NOT NULL,
     created_at TEXT NOT NULL
 );
 
@@ -485,6 +490,95 @@ fn table_columns(connection: &Connection, table: &str) -> Result<Vec<String>> {
     Ok(names)
 }
 
+/// Does a `UNIQUE` constraint cover exactly this one column?
+///
+/// `PRAGMA index_list` reports one row per index (`seq`, `name`, `unique`,
+/// `origin`, `partial`). `origin = 'u'` marks a constraint from the DDL (as
+/// opposed to `'pk'` or a hand-written `CREATE INDEX`), and `index_info` names the
+/// columns. That is the shape v9 has to remove; checking the column list rather
+/// than the SQL text keeps working if SQLite reformats the stored DDL.
+fn has_unique_column(connection: &Connection, table: &str, column: &str) -> Result<bool> {
+    let mut statement = connection.prepare(&format!("PRAGMA index_list({table})"))?;
+    let mut rows = statement.query([])?;
+    let mut unique_indexes = Vec::new();
+    while let Some(row) = rows.next()? {
+        let name: String = row.get(1)?;
+        let unique: i64 = row.get(2)?;
+        let origin: String = row.get(3)?;
+        if unique != 0 && origin == "u" {
+            unique_indexes.push(name);
+        }
+    }
+    drop(rows);
+    drop(statement);
+    for name in unique_indexes {
+        let mut info = connection.prepare(&format!("PRAGMA index_info({name})"))?;
+        let columns: Vec<String> = info
+            .query_map([], |row| row.get::<_, Option<String>>(2))?
+            .collect::<rusqlite::Result<Vec<_>>>()?
+            .into_iter()
+            .flatten()
+            .collect();
+        if columns.len() == 1 && columns[0] == column {
+            return Ok(true);
+        }
+    }
+    Ok(false)
+}
+
+/// Rebuild `asset` without the pre-v9 `UNIQUE (sha256)` / `UNIQUE (rel_path)`.
+///
+/// SQLite has no `ALTER TABLE … DROP CONSTRAINT`, so the documented procedure is
+/// new table → copy → drop → rename. `asset_ref`, `document_asset_ref` and
+/// `subtitle_binding` reference `asset(asset_id)`, and dropping a referenced
+/// table is only legal with foreign-key enforcement off — [`apply_schema`]
+/// switches it off around the transaction for exactly this rebuild.
+/// `foreign_key_check` runs before the commit and turns a dangling reference into
+/// a message, rather than an unexplained failure later.
+///
+/// Idempotent: a v9 table (or a fresh one) has no such index and returns at once.
+fn migrate_asset_uniques(connection: &Connection) -> Result<()> {
+    let needs_rebuild =
+        has_unique_column(connection, "asset", "sha256")? || has_unique_column(connection, "asset", "rel_path")?;
+    if !needs_rebuild {
+        return Ok(());
+    }
+    connection.execute_batch(
+        "CREATE TABLE asset_v9 (
+             asset_id TEXT PRIMARY KEY,
+             sha256 TEXT NOT NULL,
+             bytes INTEGER NOT NULL CHECK (bytes >= 0),
+             mime TEXT,
+             rel_path TEXT NOT NULL,
+             created_at TEXT NOT NULL
+         );
+         INSERT INTO asset_v9(asset_id, sha256, bytes, mime, rel_path, created_at)
+             SELECT asset_id, sha256, bytes, mime, rel_path, created_at FROM asset;
+         DROP TABLE asset;
+         ALTER TABLE asset_v9 RENAME TO asset;",
+    )?;
+    let mut check = connection.prepare("PRAGMA foreign_key_check")?;
+    let mut rows = check.query([])?;
+    let mut dangling = 0usize;
+    while let Some(row) = rows.next()? {
+        // `foreign_key_check` rows are (table, rowid, parent, fkid). Only the
+        // references *into* `asset` are this rebuild's business; a violation
+        // elsewhere pre-dates it and must not block the upgrade.
+        let parent: String = row.get(2)?;
+        if parent.eq_ignore_ascii_case("asset") {
+            dangling += 1;
+        }
+    }
+    drop(rows);
+    drop(check);
+    if dangling > 0 {
+        return Err(Error::new(format!(
+            "asset rebuild left {dangling} dangling foreign key reference(s)"
+        )));
+    }
+    Ok(())
+}
+
 /// Track format inference shared by the migration and import paths.
 ///
 /// Extension wins over MIME because a `.wav` renamed to `.mp3` should still be
@@ -595,9 +689,19 @@ pub fn apply_schema(connection: &Connection, library_id: &str) -> Result<()> {
             "database schema {version} is newer than supported {SCHEMA_VERSION}"
         )));
     }
+    // A pre-v9 `asset` table can only lose its UNIQUE constraints by being
+    // rebuilt, and `DROP TABLE` on a table three other tables reference is legal
+    // only with foreign-key enforcement off. The pragma is a no-op inside a
+    // transaction, so the decision is made here, before BEGIN, from the actual
+    // index shape rather than from the recorded version (a half-applied root must
+    // still be repaired).
+    let rebuild_asset =
+        has_unique_column(connection, "asset", "sha256")? || has_unique_column(connection, "asset", "rel_path")?;
+    if rebuild_asset {
+        connection.execute_batch("PRAGMA foreign_keys = OFF")?;
+    }
     connection.execute_batch("BEGIN IMMEDIATE")?;
-    let outcome = (|| -> Result<()> {
-        connection.execute_batch(&ddl())?;
+    let outcome = (|| -> Result<()> {        connection.execute_batch(&ddl())?;
         // v2 roots already have work_document; CREATE TABLE IF NOT EXISTS cannot
         // add columns, so add them in place without rebuilding the table.
         let document_columns = table_columns(connection, "work_document")?;
@@ -621,6 +725,7 @@ pub fn apply_schema(connection: &Connection, library_id: &str) -> Result<()> {
         if !table_columns(connection, "entry")?.iter().any(|column| column == "track_key") {
             connection.execute_batch("ALTER TABLE entry ADD COLUMN track_key TEXT")?;
         }
+        migrate_asset_uniques(connection)?;
         migrate_tracks(connection)?;
         let now = now_iso();
         connection.execute(
@@ -638,16 +743,21 @@ pub fn apply_schema(connection: &Connection, library_id: &str) -> Result<()> {
         connection.execute_batch(&format!("PRAGMA user_version = {SCHEMA_VERSION}"))?;
         Ok(())
     })();
-    match outcome {
-        Ok(()) => {
-            connection.execute_batch("COMMIT")?;
-            Ok(())
-        }
+    let result = match outcome {
+        Ok(()) => connection.execute_batch("COMMIT").map_err(Error::from),
         Err(error) => {
             let _ = connection.execute_batch("ROLLBACK");
             Err(error)
         }
+    };
+    if rebuild_asset {
+        // Restored only after the transaction ends — `PRAGMA foreign_keys` is a
+        // no-op while one is open — and whatever happened: the connection
+        // outlives a failed apply, and a connection left unenforcing would
+        // silently accept broken references on every later write.
+        let _ = connection.execute_batch("PRAGMA foreign_keys = ON");
     }
+    result
 }
 
 #[cfg(test)]
@@ -698,11 +808,11 @@ mod tests {
     }
 
     #[test]
-    fn v8_adds_post_tables() {
+    fn post_tables_exist_at_the_current_version() {
         let connection = Connection::open_in_memory().unwrap();
         enable_pragmas(&connection).unwrap();
         apply_schema(&connection, "lib").unwrap();
-        assert_eq!(user_version(&connection), 8);
+        assert_eq!(user_version(&connection), SCHEMA_VERSION);
         for table in ["post", "creator", "post_file", "post_tag"] {
             let count: i64 = connection
                 .query_row(
@@ -724,7 +834,7 @@ mod tests {
             connection.execute(
                 "INSERT INTO post(post_id, category, provider, source_id, title, root_path,
                      body_sha256, meta_json, created_at, updated_at)
-                 VALUES (?, ?, 'youtube', 'abc', 't', 'Videos/YouTube/x', '', '{}', 'now', 'now')",
+                 VALUES (?, ?, 'youtube', 'abc', 't', 'videos/YouTube/x', '', '{}', 'now', 'now')",
                 rusqlite::params![format!("{category}-1"), category],
             )
         };
@@ -761,7 +871,7 @@ mod tests {
                  DROP TABLE post_file;
                  DROP TABLE post;
                  DROP TABLE creator;
-                 DELETE FROM schema_migration WHERE version = 8;
+                 DELETE FROM schema_migration WHERE version >= 8;
                  INSERT INTO schema_migration(version, applied_at) VALUES (7, '2026-01-01T00:00:00.000Z');
                  UPDATE library SET schema_version = 7;
                  PRAGMA user_version = 7;",
@@ -790,14 +900,14 @@ mod tests {
 
         apply_schema(&connection, "lib-v7").unwrap();
 
-        assert_eq!(user_version(&connection), 8);
+        assert_eq!(user_version(&connection), SCHEMA_VERSION);
         for table in ["post", "creator", "post_file", "post_tag"] {
             assert!(table_exists(&connection, table), "{table} was not created on upgrade");
         }
         let library_version: i64 = connection
             .query_row("SELECT schema_version FROM library WHERE library_id = 'lib-v7'", [], |row| row.get(0))
             .unwrap();
-        assert_eq!(library_version, 8);
+        assert_eq!(library_version, SCHEMA_VERSION);
 
         // The old creation survives byte-for-byte: the frontend creation page still
         // reads `/api/creations` from `creation_post`, so any change here is user-visible.
@@ -831,29 +941,134 @@ mod tests {
 
     #[test]
     fn schema_one_version_ahead_is_refused() {
-        // The nearest future version, not just an absurd one: a v9 writer is the
-        // realistic case, and it must not be silently "upgraded" back to v8.
+        // The nearest future version, not just an absurd one: a future writer is
+        // the realistic case, and it must not be silently "upgraded" back.
         let connection = memory();
-        connection.execute_batch("PRAGMA user_version = 9").unwrap();
+        connection
+            .execute_batch(&format!("PRAGMA user_version = {}", SCHEMA_VERSION + 1))
+            .unwrap();
         let error = apply_schema(&connection, "lib-1").unwrap_err();
         assert!(error.message.contains("newer than supported"));
-        assert_eq!(user_version(&connection), 9, "a refused database must not be rewritten");
+        assert_eq!(
+            user_version(&connection),
+            SCHEMA_VERSION + 1,
+            "a refused database must not be rewritten"
+        );
     }
 
     #[test]
-    fn apply_schema_is_idempotent_at_v8() {
+    fn apply_schema_is_idempotent_at_the_current_version() {
         // The host applies the schema on every start; a duplicate migration row
-        // would make the history claim v8 was applied twice.
+        // would make the history claim the version was applied twice.
         let connection = memory();
         apply_schema(&connection, "lib-1").unwrap();
         apply_schema(&connection, "lib-1").unwrap();
         let rows: i64 = connection
-            .query_row("SELECT COUNT(*) FROM schema_migration WHERE version = 8", [], |row| row.get(0))
+            .query_row(
+                "SELECT COUNT(*) FROM schema_migration WHERE version = ?",
+                rusqlite::params![SCHEMA_VERSION],
+                |row| row.get(0),
+            )
             .unwrap();
         assert_eq!(rows, 1);
         let libraries: i64 = connection
             .query_row("SELECT COUNT(*) FROM library", [], |row| row.get(0))
             .unwrap();
         assert_eq!(libraries, 1);
+    }
+
+    /// A pre-v9 library carries `UNIQUE (sha256)` and `UNIQUE (rel_path)` on
+    /// `asset`. The upgrade has to rebuild the table (SQLite cannot drop a
+    /// constraint), keep every row, and keep the references into it valid. The
+    /// acceptance rule is that recording the same file twice is legal.
+    #[test]
+    fn v8_asset_uniques_are_removed_and_rows_survive() {
+        let connection = memory();
+        apply_schema(&connection, "lib-v8").unwrap();
+        connection
+            .execute_batch(
+                "INSERT INTO work(work_id, title, created_at, updated_at) VALUES ('w1', 'W', 'now', 'now');
+                 INSERT INTO entry(entry_id, work_id, stable_entry_id, logical_path, kind)
+                     VALUES ('e1', 'w1', 's1', 'a.mp3', 'audio');
+                 INSERT INTO asset(asset_id, sha256, bytes, mime, rel_path, created_at)
+                     VALUES ('a1', 'deadbeef', 3, 'audio/mpeg', 'derived/sha256/de/deadbeef', 'now');
+                 INSERT INTO asset_ref(asset_ref_id, work_id, entry_id, asset_id, role)
+                     VALUES ('r1', 'w1', 'e1', 'a1', 'primary');",
+            )
+            .unwrap();
+        // Rewind `asset` to its v8 shape, indexes included, while the row above is
+        // still referenced: that is exactly what an existing v8 file looks like.
+        // Foreign-key enforcement is switched off around the rebuild because a
+        // `DROP TABLE` of a referenced table is otherwise refused; the pragma is a
+        // no-op inside a transaction, so it must bracket it from outside.
+        connection.execute_batch("PRAGMA foreign_keys = OFF").unwrap();
+        connection
+            .execute_batch(
+                "BEGIN IMMEDIATE;
+                 CREATE TABLE asset_v8 (
+                     asset_id TEXT PRIMARY KEY,
+                     sha256 TEXT NOT NULL UNIQUE,
+                     bytes INTEGER NOT NULL CHECK (bytes >= 0),
+                     mime TEXT,
+                     rel_path TEXT NOT NULL UNIQUE,
+                     created_at TEXT NOT NULL
+                 );
+                 INSERT INTO asset_v8 SELECT asset_id, sha256, bytes, mime, rel_path, created_at FROM asset;
+                 DROP TABLE asset;
+                 ALTER TABLE asset_v8 RENAME TO asset;
+                 COMMIT;",
+            )
+            .unwrap();
+        connection.execute_batch("PRAGMA foreign_keys = ON").unwrap();
+        assert!(has_unique_column(&connection, "asset", "sha256").unwrap());
+        assert!(has_unique_column(&connection, "asset", "rel_path").unwrap());
+        connection.execute_batch("PRAGMA user_version = 8").unwrap();
+
+        apply_schema(&connection, "lib-v8").unwrap();
+
+        assert_eq!(user_version(&connection), SCHEMA_VERSION);
+        assert!(!has_unique_column(&connection, "asset", "sha256").unwrap());
+        assert!(!has_unique_column(&connection, "asset", "rel_path").unwrap());
+        let row: (String, String, i64) = connection
+            .query_row("SELECT asset_id, rel_path, bytes FROM asset WHERE asset_id = 'a1'", [], |row| {
+                Ok((row.get(0)?, row.get(1)?, row.get(2)?))
+            })
+            .unwrap();
+        assert_eq!(row, ("a1".to_string(), "derived/sha256/de/deadbeef".to_string(), 3));
+        let refs: i64 = connection
+            .query_row("SELECT COUNT(*) FROM asset_ref WHERE asset_id = 'a1'", [], |row| row.get(0))
+            .unwrap();
+        assert_eq!(refs, 1, "the reference survived the rebuild");
+        // The rebuild switched enforcement off around the transaction; a
+        // connection left like that would accept broken references forever.
+        let enforced: i64 = connection.query_row("PRAGMA foreign_keys", [], |row| row.get(0)).unwrap();
+        assert_eq!(enforced, 1, "foreign key enforcement was not restored");
+    }
+
+    /// The rule this version encodes: identity is `asset_id`. Two works that
+    /// contain the same file may each record it — the source-only import gives
+    /// both rows the same `sha256` and the same virtual `rel_path`.
+    #[test]
+    fn two_works_may_record_the_same_file() {
+        let connection = memory();
+        apply_schema(&connection, "lib-share").unwrap();
+        connection
+            .execute_batch(
+                "INSERT INTO work(work_id, title, created_at, updated_at) VALUES
+                     ('w1', 'One', 'now', 'now'), ('w2', 'Two', 'now', 'now');
+                 INSERT INTO entry(entry_id, work_id, stable_entry_id, logical_path, kind) VALUES
+                     ('e1', 'w1', 's1', 'same.mp3', 'audio'), ('e2', 'w2', 's2', 'same.mp3', 'audio');
+                 INSERT INTO asset(asset_id, sha256, bytes, mime, rel_path, created_at) VALUES
+                     ('one', 'feedface', 3, 'audio/mpeg', 'source/feedface', 'now'),
+                     ('two', 'feedface', 3, 'audio/mpeg', 'source/feedface', 'now');
+                 INSERT INTO asset_ref(asset_ref_id, work_id, entry_id, asset_id, role) VALUES
+                     ('r1', 'w1', 'e1', 'one', 'primary'),
+                     ('r2', 'w2', 'e2', 'two', 'primary');",
+            )
+            .unwrap();
+        let assets: i64 = connection
+            .query_row("SELECT COUNT(*) FROM asset", [], |row| row.get(0))
+            .unwrap();
+        assert_eq!(assets, 2, "the same bytes are two rows, one per work");
     }
 }

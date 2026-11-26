@@ -121,9 +121,7 @@ For alternative instances, check [INSTANCES.md](INSTANCES.md).
 ```bash
 npm install
 npm run build:server    # cargo build --release，产物在 server/target/release/
-npm run dev:web         # 后端 + 前端
-
-npm run server          # 只起后端（需先 build:server）
+npm run dev:web         # 后端 + 前端（等价于 dev:web:rust）
 ```
 
 启动后终端会打印：

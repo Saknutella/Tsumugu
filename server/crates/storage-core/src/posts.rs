@@ -461,7 +461,7 @@ mod tests {
             "sourceId": source,
             "title": "A video",
             "sourceUrl": "https://example.invalid/v/1",
-            "rootPath": "Videos/YouTube/chan/2026-01-01 A video [abc]",
+            "rootPath": "videos/YouTube/chan/2026-01-01 A video [abc]",
             "bodyHtml": "<p>hello</p>",
             "tags": ["a", "b"],
             "meta": { "views": 12 },
@@ -530,10 +530,10 @@ mod tests {
         again.as_object_mut().unwrap().remove("rootPath");
         upsert_post(&connection, &again, "s", "later").unwrap();
         let post = get_post(&connection, first["postId"].as_str().unwrap()).unwrap().unwrap();
-        assert_eq!(post["rootPath"], "Videos/YouTube/chan/2026-01-01 A video [abc]");
+        assert_eq!(post["rootPath"], "videos/YouTube/chan/2026-01-01 A video [abc]");
         assert_eq!(
             stored_root_path(&connection, "video", "youtube", "abc").unwrap().as_deref(),
-            Some("Videos/YouTube/chan/2026-01-01 A video [abc]")
+            Some("videos/YouTube/chan/2026-01-01 A video [abc]")
         );
     }
 

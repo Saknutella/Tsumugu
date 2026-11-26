@@ -105,9 +105,9 @@ Vite 7 + TypeScript/Preact + 大量原生 JS 模块,`index.html` 是包含完整
 - 音声 UI / 下载设置(2026-11-11):稳定 URL `/album/voice-<RJ>`、统一目录命名、双语版本下拉、主页移除售价、本地/字幕派生 badge 点击筛选;下载并发默认 2 个文件、单文件 2 个 Range 线程,可在设置调整。
 - 共同约定(2026-11-11):新增 [docs/16](docs/16-voice-storage-download-metadata.md),并写进项目 AGENTS §7;之前散落在交接里的下载/元数据/派生 tag/URL 规则已集中。
 - Rust storage host(2026-11-15,分支 `refactor/rust-backend`):Node host 全部路由 + legacy 迁移已移植成
-  `rust-backend/`(三个 crate),同一 SQLite schema v7 与数据根可随时切换;`verify/storage-lab/rust-diff.mjs`
+  `server/`(三个 crate),同一 SQLite schema v7 与数据根可随时切换;`verify/storage-lab/rust-diff.mjs`
   79 步 0 差异、两个方向交叉读取一致,修正并钉死 17 处 Node 旧 bug(D1–D17);前端 e2e 两个后端结果一致。
-  只在 Windows 验证;默认仍启动 Node。见 [docs/18](docs/18-rust-backend.md)。
+  只在 Windows 验证;默认仍启动 Node。见 [docs/18](docs/18-server.md)。
 - 尚未验证:官方 API 在 WebView2 里的串流/播放、账号登录、Docker 自托管与安装包签名。
 - 工作区 `npm run hygiene` 仍红(16 项:上游公开客户端凭据及研究副本、临时/缓存目录、嵌套仓库);
   不能按“只有 6 处凭据”处理,详见本轮交接与 [ROADMAP](ROADMAP.md) 已知限制 #8。
