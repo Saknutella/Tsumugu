@@ -732,9 +732,7 @@
     "skipped": "Skipped"
   },
   "layout": {
-    "resizeContent": "Resize content",
-    "backToTop": "Back to top",
-    "resizeHint": "Drag to resize content; double-click to reset"
+    "backToTop": "Back to top"
   },
   "playlist": {
     "hint": "Choose a playlist, or create a new one.",

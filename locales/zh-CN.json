@@ -732,9 +732,7 @@
     "skipped": "已跳过"
   },
   "layout": {
-    "resizeContent": "调整内容宽度",
-    "backToTop": "返回顶部",
-    "resizeHint": "拖拽调整内容宽度，双击恢复默认"
+    "backToTop": "返回顶部"
   },
   "playlist": {
     "hint": "选择一个播放列表，或新建一个。",

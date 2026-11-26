@@ -17302,9 +17302,15 @@ body.voice-cover-lightbox-open {
         0 0 0 2px color-mix(in srgb, var(--filter-accent) 35%, transparent);
 }
 
-/* 大屏展示内容宽度:默认保持各页面原宽度,拖拽后由 --content-max-width 统一覆盖。 */
+/* 大屏展示内容宽度。
+ *
+ * 这些是各页的**默认**宽度；当前生效的是文件末尾的自动宽度块（库页
+ * `max-width: none !important`，创作详情 `min(1120px,100%) !important`）。
+ * 原先这里写的是 `var(--content-max-width, 1500px)` —— 那个变量由已删除的
+ * 像素拖拽（`js/layout-controls.js`）设置，不会再有值，所以换成字面量，
+ * 免得读代码的人去找一个不存在的设置入口。 */
 html body #page-creations .creations-page {
-    max-width: var(--content-max-width, 1500px);
+    max-width: 1500px;
 }
 
 /* Give the detail its own width instead of capping it at the library width minus padding. */
@@ -17313,85 +17319,11 @@ html body #page-creations .creations-page:has(> #creations-detail-view:not([hidd
 }
 
 html body #page-creations .creation-detail {
-    max-width: var(--content-max-width, 960px);
+    max-width: 960px;
 }
 
 html body #page-voices .voices-page {
-    max-width: var(--content-max-width, 1120px);
-}
-
-body.is-resizing-content {
-    user-select: none;
-    cursor: ew-resize;
-}
-
-/* The larger hit area leaves the visible handle in the gutter. */
-.content-resizer {
-    position: fixed;
-    z-index: 1300;
-    width: 24px;
-    height: 64px;
-    transform: translate(-50%, -50%);
-    touch-action: none;
-    cursor: ew-resize;
-    outline: none;
-}
-
-.content-resizer[hidden] {
-    display: none;
-}
-
-.content-resizer::before {
-    content: '';
-    position: absolute;
-    left: 50%;
-    top: 50%;
-    width: 5px;
-    height: 32px;
-    transform: translate(-50%, -50%);
-    border-radius: 999px;
-    background: var(--muted-foreground);
-    opacity: 0.45;
-    transition: opacity 140ms ease, transform 140ms ease;
-}
-
-.content-resizer:hover::before,
-.content-resizer:focus-visible::before,
-.content-resizer.is-dragging::before {
-    opacity: 1;
-    transform: translate(-50%, -50%) scaleY(1.16);
-}
-
-.content-resizer:focus-visible:not(.is-dragging)::before {
-    outline: 2px solid var(--ring);
-    outline-offset: 4px;
-}
-
-.content-resizer.is-dragging {
-    will-change: translate;
-}
-
-.content-resizer.is-dragging::after {
-    content: attr(data-width);
-    position: absolute;
-    top: 50%;
-    left: 100%;
-    transform: translateY(-50%);
-    padding: 3px 8px;
-    border: 1px solid var(--border);
-    border-radius: 999px;
-    background: var(--card);
-    color: var(--foreground);
-    font-size: 0.72rem;
-    font-variant-numeric: tabular-nums;
-    white-space: nowrap;
-    pointer-events: none;
-}
-
-@media (prefers-reduced-motion: reduce) {
-    .content-resizer::before {
-        transition: none;
-    }
+    max-width: 1120px;
 }
 
 /* 全局返回顶部:悬浮在播放器条上方，滚动后淡入。 */
@@ -17444,10 +17376,6 @@ body.is-resizing-content {
 }
 
 @media (max-width: 1279px) {
-    .content-resizer {
-        display: none !important;
-    }
-
     .back-to-top {
         right: 20px;
         bottom: 104px;
@@ -18272,7 +18200,7 @@ body.is-resizing-content {
 }
 
 html body #page-videos .videos-page {
-    max-width: var(--content-max-width, 1120px);
+    max-width: 1120px;
 }
 
 #page-videos .videos-library-header {
@@ -19454,9 +19382,6 @@ html body #page-videos .videos-page {
     padding-inline: clamp(1rem, 2.4vw, 2.2rem);
 }
 
-#content-resizer {
-    display: none !important;
-}
 
 #voice-proxy-port {
     flex: 0 0 96px;
