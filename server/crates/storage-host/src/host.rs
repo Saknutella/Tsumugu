@@ -2136,6 +2136,14 @@ impl Host {
         if root_name.is_empty() || root_name.split('/').any(|part| part == "..") {
             return Err(Error::bad_request("rootName is invalid"));
         }
+        // Every other write into the source root maps a bare path under its type
+        // directory (`import_file`, upload, move, the bundle download). This one
+        // did not, so a client that sent a bare `[RJ…] Title` created the work at
+        // `<source>/[RJ…] Title` while the same work downloaded file-by-file
+        // landed in `<source>/voices/[RJ…] Title` — two folders for one work, and
+        // the second import reported a work the first could not see. Already
+        // prefixed paths pass through unchanged, so the normal path is unaffected.
+        let root_name = storage_core::layout::normalize_source_relative(&root_name);
         let root = paths::resolve_lexical(&source_root.join(root_name.replace('/', std::path::MAIN_SEPARATOR_STR)));
         if !paths::is_inside(&source_root, &root) || root == source_root {
             return Err(Error::path_denied("voice root is outside the source root"));
@@ -2287,6 +2295,13 @@ impl Host {
                 let _ = self.library.update_work_metadata(&work_id, &patch);
             }
         }
+        // Seed `.monochrome/info.json` from the request's metadata. Write-once: a
+        // re-import must not replace a seed a human may have corrected, and the
+        // database stays the authority for everything the app displays.
+        let _ = storage_core::sidecar::write_if_absent(
+            &root,
+            &storage_core::sidecar::voice_seed(&metadata, &root_name),
+        );
         Ok(outcome.to_json())
     }
 
@@ -3661,6 +3676,74 @@ mod tests {
         let works = host.list_works().unwrap();
         let mime = &works[0]["entries"][0]["mime"];
         assert_eq!(mime, "audio/wav", "empty entry mime falls back to the asset mime: {mime}");
+        drop(host);
+        let _ = std::fs::remove_dir_all(base);
+    }
+
+    /// A voice work must leave a readable record of itself, the same way a
+    /// creation post does. Before this, only creations and videos wrote
+    /// `.monochrome/info.json`; a voice folder whose database was lost could say
+    /// nothing about itself unless a downloader had happened to leave a
+    /// `metadata.json` next to it.
+    #[test]
+    fn save_voice_bundle_seeds_info_json_once() {
+        let base = std::env::temp_dir().join(format!("mono-host-voice-seed-{}", uuid::Uuid::new_v4()));
+        let source_root = base.join("source");
+        let work_root = source_root.join("voices").join("[RJ09000200] Seeded");
+        std::fs::create_dir_all(&work_root).unwrap();
+        let mut host = Host::open(HostOptions {
+            library_root: base.join("lib"),
+            source_root: Some(source_root.clone()),
+            allowed_source_roots: vec![source_root.clone()],
+            allow_outside_root: true,
+            experiment_root: None,
+            snapshot_fault: None,
+        })
+        .unwrap();
+        let bundle = |title: &str| {
+            json!({
+                "rootName": "[RJ09000200] Seeded",
+                "metadata": {
+                    "title": title, "circle": "Seed Circle", "sourceCode": "RJ09000200",
+                    "cvs": ["A", "B"], "release": "2026-01-02", "sourceUrl": "https://example.invalid/RJ09000200",
+                    // Volatile fields that must NOT be frozen into the seed.
+                    "rating": 4.5, "ratingCount": 12, "price": 1540, "tags": ["x"],
+                },
+                "manifest": { "version": 1, "entries": [] },
+            })
+        };
+        host.save_voice_bundle(&bundle("Seeded")).unwrap();
+
+        let seed = storage_core::sidecar::read(&work_root).expect("the seed exists");
+        assert_eq!(seed["schema"], "monochrome-info/1");
+        assert_eq!(seed["kind"], "voice");
+        assert_eq!(seed["manual"], false);
+        assert_eq!(seed["title"], "Seeded");
+        assert_eq!(seed["circle"], "Seed Circle");
+        assert_eq!(seed["sourceCode"], "RJ09000200");
+        assert_eq!(seed["cvs"], json!(["A", "B"]));
+        assert_eq!(seed["originalRoot"], "voices/[RJ09000200] Seeded");
+        for volatile in ["rating", "ratingCount", "price", "tags"] {
+            assert!(seed.get(volatile).is_none(), "{volatile} must not be frozen into the seed: {seed}");
+        }
+
+        // A re-import with a corrected title updates the row but not the file: the
+        // seed is written once, so it cannot drift into a second write path.
+        host.save_voice_bundle(&bundle("Seeded Renamed")).unwrap();
+        let again = storage_core::sidecar::read(&work_root).unwrap();
+        assert_eq!(again["title"], "Seeded", "the seed keeps its first-import title: {again}");
+        let works = host.list_works().unwrap();
+        assert_eq!(works[0]["title"], "Seeded Renamed", "the row is the authority");
+
+        // A human correction is respected: `manual` seeds are never overwritten
+        // and the scanner prefers them over a stray metadata.json.
+        let mut edited = again.clone();
+        edited["manual"] = json!(true);
+        edited["title"] = json!("Edited By Hand");
+        std::fs::write(work_root.join(".monochrome/info.json"), edited.to_string()).unwrap();
+        assert!(!storage_core::sidecar::write_if_absent(&work_root, &json!({"title": "third"})).unwrap());
+        assert_eq!(storage_core::sidecar::read(&work_root).unwrap()["title"], "Edited By Hand");
+
         drop(host);
         let _ = std::fs::remove_dir_all(base);
     }

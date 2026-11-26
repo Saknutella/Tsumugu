@@ -35,7 +35,7 @@
 
 use std::path::{Path, PathBuf};
 
-use serde_json::Value;
+use serde_json::{Map, Value};
 
 use crate::error::Result;
 use crate::fsutil;
@@ -92,6 +92,51 @@ pub fn write_if_absent(folder: &Path, value: &Value) -> Result<bool> {
 /// A short text field, trimmed. Used by callers merging a seed into an import.
 pub fn text<'a>(value: &'a Value, key: &str) -> &'a str {
     value.get(key).and_then(Value::as_str).map(str::trim).unwrap_or("")
+}
+
+/// Build the seed a voice work writes on first import.
+///
+/// Voice works read this file (the scanner prefers it over a stray
+/// `metadata.json`) but until now nothing wrote it, so a folder whose database was
+/// lost could only say what it was if a downloader had left a `metadata.json`
+/// behind. Creations and videos already wrote theirs; this closes the asymmetry.
+///
+/// Only identity and human-facing fields go in. Ratings, prices and tags are
+/// deliberately left out: they change without the folder changing, and a seed
+/// that goes stale is worse than a seed that says less.
+pub fn voice_seed(metadata: &Map<String, Value>, original_root: &str) -> Value {
+    let field = |key: &str| metadata.get(key).cloned().unwrap_or(Value::Null);
+    let mut seed = serde_json::Map::new();
+    seed.insert("schema".to_string(), serde_json::json!(SCHEMA));
+    seed.insert("manual".to_string(), serde_json::json!(false));
+    seed.insert("kind".to_string(), serde_json::json!("voice"));
+    for key in ["title", "circle", "sourceCode"] {
+        let value = field(key);
+        if value.as_str().map(str::trim).unwrap_or("").is_empty() {
+            continue;
+        }
+        seed.insert(key.to_string(), value);
+    }
+    let cvs = metadata
+        .get("cvs")
+        .or_else(|| metadata.get("artists"))
+        .and_then(Value::as_array)
+        .cloned()
+        .unwrap_or_default();
+    if !cvs.is_empty() {
+        seed.insert("cvs".to_string(), Value::Array(cvs));
+    }
+    for key in ["release", "sourceUrl"] {
+        let value = field(key);
+        if value.as_str().map(str::trim).unwrap_or("").is_empty() {
+            continue;
+        }
+        seed.insert(key.to_string(), value);
+    }
+    if !original_root.is_empty() {
+        seed.insert("originalRoot".to_string(), serde_json::json!(original_root));
+    }
+    Value::Object(seed)
 }
 
 /// A list of non-empty strings, used for `cvs`/`tags`.
