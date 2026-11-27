@@ -28,7 +28,8 @@ pub const EXPORT_FORMAT: &str = "monochrome-storage-lab-export";
 pub const EXPORT_FORMAT_VERSION: i64 = 1;
 
 fn mime_extension(mime: &str) -> Option<&'static str> {
-    Some(match mime {
+    let base = mime.split(';').next().unwrap_or(mime).trim().to_ascii_lowercase();
+    Some(match base.as_str() {
         "audio/mpeg" => ".mp3",
         "audio/wav" => ".wav",
         "audio/flac" => ".flac",
@@ -438,6 +439,14 @@ mod tests {
         assert_eq!(clean_component("..."), "untitled");
         assert_eq!(clean_component("ｆｕｌｌ　width"), "full width");
         assert_eq!(clean_component(&"x".repeat(200)).len(), 180);
+    }
+
+    #[test]
+    fn mime_extension_ignores_charset_parameters() {
+        assert_eq!(mime_extension("text/vtt; charset=shift_jis"), Some(".vtt"));
+        assert_eq!(mime_extension("application/x-subrip; charset=utf-8"), Some(".srt"));
+        assert_eq!(mime_extension("text/x-ssa; charset=gbk"), Some(".ass"));
+        assert_eq!(mime_extension("text/plain; charset=shift_jis"), None);
     }
 
     #[test]

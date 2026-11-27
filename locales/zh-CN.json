@@ -95,7 +95,13 @@
       "proxyUnset": "直连",
       "proxyApplied": "已应用：{{proxy}}",
       "proxyApplyFailed": "代理设置失败（仅开发服务器支持）",
-      "proxyDevOnly": "仅开发服务器支持动态代理"
+      "proxyDevOnly": "仅开发服务器支持动态代理",
+      "dlsiteLocale": "DLsite 标签语言",
+      "dlsiteLocaleHint": "抓取 DLsite 元数据与标签时请求的语言版本。",
+      "dlsiteLocaleAuto": "默认（自动）",
+      "dlsiteLocaleZhCn": "简体中文",
+      "dlsiteLocaleZhTw": "繁体中文",
+      "dlsiteLocaleJaJp": "日文"
     },
     "voicePath": {
       "title": "音声智能路径",

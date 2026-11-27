@@ -95,7 +95,13 @@
       "proxyUnset": "Direct connection",
       "proxyApplied": "Applied: {{proxy}}",
       "proxyApplyFailed": "Proxy update failed (dev server only)",
-      "proxyDevOnly": "Dynamic proxy is available in the dev server"
+      "proxyDevOnly": "Dynamic proxy is available in the dev server",
+      "dlsiteLocale": "DLsite tag language",
+      "dlsiteLocaleHint": "Language requested when fetching DLsite metadata and tags.",
+      "dlsiteLocaleAuto": "Default (auto)",
+      "dlsiteLocaleZhCn": "Simplified Chinese",
+      "dlsiteLocaleZhTw": "Traditional Chinese",
+      "dlsiteLocaleJaJp": "Japanese"
     },
     "voicePath": {
       "title": "Voice initial path",

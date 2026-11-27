@@ -1,9 +1,12 @@
 # 文件库后端（Rust 实现）。
 #
 # 三层，各自职责单向依赖：
-#   storage-core  存储基础：schema、路径、文件系统、哈希、快照
+#   storage-core  存储基础：schema、路径、布局、文件系统、哈希、快照
 #   storage-host  领域逻辑：work / entry / asset、扫描、入库、封面、备份
 #   storage-http  HTTP 层：路由、鉴权、媒体读取，以及 monochrome-storage-host 可执行文件
+#
+# 目录名就叫 `server/`，和发布仓库（koebako-rust / tsumugu-rust）一致，
+# 同步时同名目录直接覆盖，不需要再做 rust-backend → server 的重映射。
 #
 # 构建：cargo build --release -p monochrome-storage-http --bin monochrome-storage-host
 # 产物：server/target/release/monochrome-storage-host(.exe)
@@ -61,3 +64,7 @@ url = "2.5.8"
 # Windows and complicates cross-compiling; ring builds everywhere with cc.
 reqwest = { version = "0.13.5", default-features = false, features = ["rustls-no-provider", "blocking"] }
 rustls = { version = "0.23.46", default-features = false, features = ["ring", "std", "tls12"] }
+# Text/subtitle charset detection at ingest time (docs/22 §A1): pure Rust,
+# Mozilla's detector + WHATWG encoding labels matching WebView2 TextDecoder.
+encoding_rs = "0.8"
+chardetng = "0.1"

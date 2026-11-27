@@ -377,16 +377,28 @@ const DLSITE_PROXY = process.env.DLSITE_PROXY || process.env.HTTPS_PROXY || 'htt
 const DLSITE_CACHE_TTL = 60 * 60 * 1000;
 const dlsiteCache = new Map();
 
+const DLSITE_QUERY_TO_COOKIE = {
+    ja_JP: 'ja-jp',
+    zh_TW: 'zh-tw',
+    zh_CN: 'zh-cn',
+};
+
 function isAllowedDlsiteUrl(value) {
     try {
         const url = new URL(value);
-        return (
-            url.protocol === 'https:' &&
-            url.hostname === 'www.dlsite.com' &&
-            /^\/maniax\/work\/=\/product_id\/RJ\d{5,8}\.html$/i.test(url.pathname) &&
-            !url.username &&
-            !url.password
-        );
+        if (
+            url.protocol !== 'https:' ||
+            url.hostname !== 'www.dlsite.com' ||
+            !/^\/maniax\/work\/=\/product_id\/RJ\d{5,8}\.html$/i.test(url.pathname) ||
+            url.username ||
+            url.password
+        ) {
+            return false;
+        }
+        const keys = [...url.searchParams.keys()];
+        if (keys.length === 0) return true;
+        if (keys.length !== 1 || keys[0] !== 'locale') return false;
+        return Boolean(DLSITE_QUERY_TO_COOKIE[url.searchParams.get('locale')]);
     } catch {
         return false;
     }
@@ -394,9 +406,12 @@ function isAllowedDlsiteUrl(value) {
 
 async function fetchDlsiteWithCurl(target) {
     // Mixed proxy on 7897 is the local-only route; never turn this into an open proxy.
+    const queryLocale = new URL(target).searchParams.get('locale');
+    const cookieLocale = DLSITE_QUERY_TO_COOKIE[queryLocale] || '';
+    const cookieArgs = cookieLocale ? ['-H', `Cookie: locale=${cookieLocale}`] : [];
     const { stdout } = await execFileAsync(
         'curl',
-        ['-sS', '-L', '--max-time', '30', '--proxy', DLSITE_PROXY, '-A', USER_AGENT, '-H', 'Accept: text/html', target],
+        ['-sS', '-L', '--max-time', '30', '--proxy', DLSITE_PROXY, '-A', USER_AGENT, '-H', 'Accept: text/html', ...cookieArgs, target],
         { maxBuffer: 5 * 1024 * 1024 },
     );
     if (!stdout || stdout.length < 32) throw new Error('empty DLsite response');

@@ -4,6 +4,32 @@
 // the language selector and maker template are parsed. Unknown pages return null
 // rather than guessing from visible text.
 import { fetchDlsiteHtml } from './tauri-bridge.js';
+import { getVoiceServerSettings, normalizeDlsiteLocale } from './voice-settings.js';
+
+export { normalizeDlsiteLocale };
+
+const DLSITE_QUERY_LOCALE = {
+    'ja-jp': 'ja_JP',
+    'zh-tw': 'zh_TW',
+    'zh-cn': 'zh_CN',
+};
+
+/**
+ * Build the DLsite work URL, appending `?locale=` when configured.
+ *
+ * Uses query parameter rather than a `Cookie` header because browser/WebView2
+ * `fetch()` silently strips forbidden `Cookie` headers even under
+ * `--disable-web-security`; live probe across ja-jp/zh-tw/zh-cn confirmed
+ * identical 115-key `__NUXT_DATA__` product payloads across all three locales.
+ */
+export function dlsiteProductUrl(code, locale = '') {
+    const normalized = String(code || '').toUpperCase().match(/RJ\d{5,8}/)?.[0];
+    if (!normalized) return '';
+    const loc = normalizeDlsiteLocale(locale);
+    const query = DLSITE_QUERY_LOCALE[loc];
+    const base = `https://www.dlsite.com/maniax/work/=/product_id/${normalized}.html`;
+    return query ? `${base}?locale=${query}` : base;
+}
 
 function decodeEntities(value) {
     return String(value ?? '')
@@ -448,14 +474,15 @@ function mergeOriginalCircle(translated, original) {
 export async function fetchDlsiteWorkMetadata(code, options = {}) {
     const normalized = String(code || '').toUpperCase().match(/RJ\d{5,8}/)?.[0];
     if (!normalized) return null;
-    const url = `https://www.dlsite.com/maniax/work/=/product_id/${normalized}.html`;
+    const locale = normalizeDlsiteLocale(options.locale ?? getVoiceServerSettings().dlsiteLocale);
+    const url = dlsiteProductUrl(normalized, locale);
     const html = await fetchDlsiteHtml(url, options);
     const translated = parseDlsiteWorkMetadata(html);
     if (!translated?.sourceCode || translated.sourceCode === normalized) return translated;
     try {
         // A translated edition's maker is the translation group. The card's
         // circle must come from the original Japanese product page instead.
-        const originalUrl = `https://www.dlsite.com/maniax/work/=/product_id/${translated.sourceCode}.html`;
+        const originalUrl = dlsiteProductUrl(translated.sourceCode, locale);
         const originalHtml = await fetchDlsiteHtml(originalUrl, options);
         return mergeOriginalCircle(translated, parseDlsiteWorkMetadata(originalHtml));
     } catch (error) {

@@ -12,6 +12,7 @@ export const VOICE_DOWNLOAD_KEY = 'monochrome-voice-download-settings-v1';
 export const VOICE_SERVERS_EVENT = 'voice-settings-changed';
 
 export const DEFAULT_AUDIO_TYPE_ORDER = Object.freeze(['mp3', 'flac', 'wav', 'opus', 'm4a', 'aac']);
+export const DLSITE_LOCALES = Object.freeze(['', 'zh-cn', 'zh-tw', 'ja-jp']);
 
 const memoryStorage = new Map();
 
@@ -79,6 +80,11 @@ export function normalizeProxyUrl(value) {
     }
 }
 
+export function normalizeDlsiteLocale(value) {
+    const normalized = stringValue(value).toLowerCase().replace(/_/g, '-');
+    return normalized && DLSITE_LOCALES.includes(normalized) ? normalized : '';
+}
+
 function defaultServerSettings() {
     return {
         version: 1,
@@ -90,6 +96,7 @@ function defaultServerSettings() {
         selectedAt: 0,
         discoveredMediaHosts: [],
         proxy: '',
+        dlsiteLocale: '',
     };
 }
 
@@ -143,6 +150,7 @@ function sanitizeServerSettings(value) {
             ? [...new Set(value.discoveredMediaHosts.map((item) => stringValue(item)).filter(Boolean))].slice(0, 20)
             : [],
         proxy: normalizeProxyUrl(value.proxy),
+        dlsiteLocale: normalizeDlsiteLocale(value.dlsiteLocale),
     };
 }
 

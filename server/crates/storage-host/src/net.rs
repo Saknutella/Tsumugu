@@ -71,7 +71,18 @@ pub fn get_bounded(url: &str, max_bytes: usize, timeout: Duration) -> Result<Fet
     let response = client(Some(timeout))?
         .get(url)
         .send()
-        .map_err(|error| Error::new(format!("request failed: {error}")))?;
+        .map_err(|error| {
+            // `is_request()` is the one that matters most and the easiest to miss:
+            // a server that accepts the connection and then drops it (CDN edge
+            // reset, flaky proxy) surfaces as `request`, *not* `connect` or `body`.
+            // Measured on reqwest 0.13.5: such a drop reports
+            // `timeout=false connect=false body=false request=true`.
+            if error.is_timeout() || error.is_connect() || error.is_body() || error.is_request() {
+                Error::coded("EHTTPTRANSIENT", format!("request failed: {error}"))
+            } else {
+                Error::new(format!("request failed: {error}"))
+            }
+        })?;
     let status = response.status().as_u16();
     let content_type = response
         .headers()
@@ -83,7 +94,7 @@ pub fn get_bounded(url: &str, max_bytes: usize, timeout: Duration) -> Result<Fet
     response
         .take(max_bytes as u64 + 1)
         .read_to_end(&mut body)
-        .map_err(|error| Error::new(format!("response read failed: {error}")))?;
+        .map_err(|error| Error::coded("EHTTPTRANSIENT", format!("response read failed: {error}")))?;
     if body.len() > max_bytes {
         return Err(Error::coded("ETOOLARGE", format!("response exceeds {max_bytes} bytes")));
     }

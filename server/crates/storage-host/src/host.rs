@@ -151,6 +151,9 @@ impl Host {
         if let Some(source) = &source_root {
             storage_core::layout::migrate_creation_assets(&library.connection, &library.root, source)?;
         }
+        // Backfill detected `charset=` on pre-existing text/subtitle rows so
+        // Shift-JIS/GBK files imported by earlier builds also decode cleanly.
+        ingest::migrate_text_charsets(&library.connection, &library.data_root, source_root.as_deref())?;
 
         // A previous host process cannot have a live worker: we hold the lease.
         // Mark its unfinished batches interrupted so the UI does not poll forever.
@@ -3221,17 +3224,43 @@ fn percent_encode(value: &str) -> String {
     out
 }
 
+const COVER_RETRY_DELAYS: [std::time::Duration; 2] = [
+    std::time::Duration::from_millis(200),
+    std::time::Duration::from_millis(600),
+];
+
 /// Best-effort HTTPS GET used for covers.
 ///
-/// Returns `None` on any failure: covers are cosmetic, and a network error must
-/// not fail a library operation. Only used for image downloads whose URL the
-/// caller already validated as http(s).
+/// Retries 5xx, timeout and transient transport errors with bounded backoff;
+/// 4xx, size-cap (`ETOOLARGE`) and empty 2xx bodies fail immediately without
+/// retrying. Returns `None` on any failure: covers are cosmetic, and a network
+/// error must not fail a library operation. Only used for image downloads whose
+/// URL the caller already validated as http(s).
 fn fetch_https(url: &str, max_bytes: usize) -> Option<Vec<u8>> {
-    // Node: `if (!response.ok) continue` and a 0 < size <= cap check.
-    match crate::net::get_bounded(url, max_bytes, crate::net::COVER_TIMEOUT) {
-        Ok(fetched) if (200..300).contains(&fetched.status) && !fetched.body.is_empty() => Some(fetched.body),
-        _ => None,
+    fetch_https_with(url, max_bytes, crate::net::COVER_TIMEOUT, &COVER_RETRY_DELAYS)
+}
+
+fn fetch_https_with(
+    url: &str,
+    max_bytes: usize,
+    timeout: std::time::Duration,
+    retry_delays: &[std::time::Duration],
+) -> Option<Vec<u8>> {
+    for attempt in 0..=retry_delays.len() {
+        let retryable = match crate::net::get_bounded(url, max_bytes, timeout) {
+            Ok(fetched) if (200..300).contains(&fetched.status) && !fetched.body.is_empty() => {
+                return Some(fetched.body);
+            }
+            Ok(fetched) if (500..600).contains(&fetched.status) => true,
+            Ok(_) => false,
+            Err(error) => error.code == Some("EHTTPTRANSIENT"),
+        };
+        if !retryable || attempt == retry_delays.len() {
+            return None;
+        }
+        std::thread::sleep(retry_delays[attempt]);
     }
+    None
 }
 
 fn absolute_unused(actual: &[(PathBuf, String, String, u64)]) -> usize {
@@ -4032,6 +4061,225 @@ mod tests {
         assert!(manifest[0].get("aliasOf").is_none());
         drop(host);
         let _ = std::fs::remove_dir_all(base);
+    }
+
+    #[test]
+    fn open_backfills_text_charsets_idempotently() {
+        let base = std::env::temp_dir().join(format!("mono-host-charset-mig-{}", uuid::Uuid::new_v4()));
+        let library_root = base.join("lib");
+        let source_root = base.join("source");
+        let work_dir = source_root.join("voices").join("[RJ09000010] Legacy");
+        std::fs::create_dir_all(&work_dir).unwrap();
+        let (sjis, _, _) = encoding_rs::SHIFT_JIS.encode("同人音声の説明文です。テスト用に十分な長さを書きます。");
+        let (gbk, _, _) = encoding_rs::GBK.encode("这是之前已迁移entry但asset未同步的简体中文文本。");
+        std::fs::write(work_dir.join("notes.txt"), &sjis).unwrap();
+        std::fs::write(work_dir.join("sync.txt"), &gbk).unwrap();
+
+        {
+            let library = Library::open(
+                &library_root,
+                OpenOptions { create: true, allow_outside_root: true, ..Default::default() },
+            )
+            .unwrap();
+            library
+                .connection
+                .execute(
+                    "INSERT INTO work(work_id, title, created_at, updated_at) VALUES ('w1', 'W', 'now', 'now')",
+                    [],
+                )
+                .unwrap();
+            library
+                .connection
+                .execute(
+                    "INSERT INTO track(track_id, work_id, track_key, title, sort_order, created_at)
+                     VALUES ('t1', 'w1', 'k1', 'notes.txt', 0, 'now'),
+                            ('t2', 'w1', 'k2', 'missing.txt', 1, 'now'),
+                            ('t3', 'w1', 'k3', 'sync.txt', 2, 'now')",
+                    [],
+                )
+                .unwrap();
+            library
+                .connection
+                .execute(
+                    "INSERT INTO entry(entry_id, work_id, stable_entry_id, logical_path, kind, mime, original_path)
+                     VALUES ('e1', 'w1', 's1', 'notes.txt', 'text', 'text/plain', 'voices/[RJ09000010] Legacy/notes.txt'),
+                            ('e2', 'w1', 's2', 'missing.txt', 'text', 'text/plain', 'voices/[RJ09000010] Legacy/missing.txt'),
+                            ('e3', 'w1', 's3', 'sync.txt', 'text', 'text/plain; charset=gbk', 'voices/[RJ09000010] Legacy/sync.txt')",
+                    [],
+                )
+                .unwrap();
+            library
+                .connection
+                .execute(
+                    "INSERT INTO asset(asset_id, sha256, bytes, mime, rel_path, created_at)
+                     VALUES ('a1', 'sha1', 10, 'text/plain', 'source/sha1', 'now'),
+                            ('a3', 'sha3', 10, 'text/plain', 'source/sha3', 'now')",
+                    [],
+                )
+                .unwrap();
+            library
+                .connection
+                .execute(
+                    "INSERT INTO asset_ref(asset_ref_id, work_id, entry_id, asset_id, role)
+                     VALUES ('ar1', 'w1', 'e1', 'a1', 'primary'),
+                            ('ar3', 'w1', 'e3', 'a3', 'primary')",
+                    [],
+                )
+                .unwrap();
+            library
+                .connection
+                .execute(
+                    "INSERT INTO track_rendition(rendition_id, track_id, entry_id, format, mime, priority, created_at)
+                     VALUES ('tr1', 't1', 'e1', 'unknown', 'text/plain', 0, 'now'),
+                            ('tr2', 't2', 'e2', 'unknown', 'text/plain', 1, 'now'),
+                            ('tr3', 't3', 'e3', 'unknown', 'text/plain', 2, 'now')",
+                    [],
+                )
+                .unwrap();
+        }
+
+        let host = Host::open(HostOptions {
+            library_root: library_root.clone(),
+            source_root: Some(source_root.clone()),
+            allowed_source_roots: vec![source_root.clone()],
+            allow_outside_root: true,
+            experiment_root: None,
+            snapshot_fault: None,
+        })
+        .unwrap();
+
+        let q = |sql: &str, id: &str| -> String {
+            host.library
+                .connection
+                .query_row(sql, rusqlite::params![id], |row| row.get(0))
+                .unwrap()
+        };
+        assert_eq!(q("SELECT mime FROM entry WHERE entry_id = ?", "e1"), "text/plain; charset=shift_jis");
+        assert_eq!(q("SELECT mime FROM track_rendition WHERE entry_id = ?", "e1"), "text/plain; charset=shift_jis");
+        assert_eq!(q("SELECT mime FROM asset WHERE asset_id = ?", "a1"), "text/plain; charset=shift_jis");
+        // Missing file stays bare instead of guessing a default.
+        assert_eq!(q("SELECT mime FROM entry WHERE entry_id = ?", "e2"), "text/plain");
+        // Previously migrated entry syncs bare asset & rendition without re-sniffing.
+        assert_eq!(q("SELECT mime FROM track_rendition WHERE entry_id = ?", "e3"), "text/plain; charset=gbk");
+        assert_eq!(q("SELECT mime FROM asset WHERE asset_id = ?", "a3"), "text/plain; charset=gbk");
+
+        // Second run is a no-op.
+        assert_eq!(
+            ingest::migrate_text_charsets(&host.library.connection, &host.library.data_root, Some(&source_root)).unwrap(),
+            0
+        );
+        drop(host);
+        let _ = std::fs::remove_dir_all(base);
+    }
+
+    #[test]
+    fn fetch_https_retries_transient_failures_but_not_4xx_or_cap() {
+        use std::io::{Read, Write};
+        use std::net::TcpListener;
+        use std::sync::{
+            atomic::{AtomicUsize, Ordering},
+            Arc,
+        };
+
+        enum Step {
+            Reply(Vec<u8>),
+            Hang,
+            Drop,
+        }
+
+        fn serve_script(steps: Vec<Step>) -> (String, Arc<AtomicUsize>, std::thread::JoinHandle<()>) {
+            let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+            let addr = listener.local_addr().unwrap();
+            let hits = Arc::new(AtomicUsize::new(0));
+            let hits_bg = Arc::clone(&hits);
+            let handle = std::thread::spawn(move || {
+                for step in steps {
+                    let Ok((mut stream, _)) = listener.accept() else { break };
+                    hits_bg.fetch_add(1, Ordering::SeqCst);
+                    let mut buf = [0u8; 1024];
+                    let _ = stream.read(&mut buf);
+                    match step {
+                        Step::Reply(bytes) => {
+                            let _ = stream.write_all(&bytes);
+                        }
+                        Step::Hang => {
+                            std::thread::spawn(move || {
+                                let _hold = stream;
+                                std::thread::sleep(std::time::Duration::from_millis(350));
+                            });
+                        }
+                        Step::Drop => {
+                            drop(stream);
+                        }
+                    }
+                }
+            });
+            (format!("http://{addr}/cover.webp"), hits, handle)
+        }
+
+        let delays = [std::time::Duration::from_millis(10), std::time::Duration::from_millis(20)];
+        let timeout = std::time::Duration::from_millis(150);
+
+        // 1. 503 -> 502 -> 200 recovers on 3rd attempt.
+        let (url, hits, handle) = serve_script(vec![
+            Step::Reply(b"HTTP/1.1 503 Unavailable\r\nContent-Length: 0\r\nConnection: close\r\n\r\n".to_vec()),
+            Step::Reply(b"HTTP/1.1 502 Bad Gateway\r\nContent-Length: 0\r\nConnection: close\r\n\r\n".to_vec()),
+            Step::Reply(b"HTTP/1.1 200 OK\r\nContent-Length: 4\r\nConnection: close\r\n\r\nimg!".to_vec()),
+        ]);
+        assert_eq!(fetch_https_with(&url, 1024, timeout, &delays), Some(b"img!".to_vec()));
+        assert_eq!(hits.load(Ordering::SeqCst), 3);
+        let _ = handle.join();
+
+        // 2. 503 x 3 exhausts attempts and returns None.
+        let (url, hits, handle) = serve_script(vec![
+            Step::Reply(b"HTTP/1.1 503 Unavailable\r\nContent-Length: 0\r\nConnection: close\r\n\r\n".to_vec()),
+            Step::Reply(b"HTTP/1.1 503 Unavailable\r\nContent-Length: 0\r\nConnection: close\r\n\r\n".to_vec()),
+            Step::Reply(b"HTTP/1.1 503 Unavailable\r\nContent-Length: 0\r\nConnection: close\r\n\r\n".to_vec()),
+        ]);
+        assert_eq!(fetch_https_with(&url, 1024, timeout, &delays), None);
+        assert_eq!(hits.load(Ordering::SeqCst), 3);
+        let _ = handle.join();
+
+        // 3. 404 stops immediately on attempt 1.
+        let (url, hits, handle) = serve_script(vec![
+            Step::Reply(b"HTTP/1.1 404 Not Found\r\nContent-Length: 0\r\nConnection: close\r\n\r\n".to_vec()),
+        ]);
+        assert_eq!(fetch_https_with(&url, 1024, timeout, &delays), None);
+        assert_eq!(hits.load(Ordering::SeqCst), 1);
+        let _ = handle.join();
+
+        // 4. Timeout on 1st attempt -> 200 on 2nd recovers.
+        let (url, hits, handle) = serve_script(vec![
+            Step::Hang,
+            Step::Reply(b"HTTP/1.1 200 OK\r\nContent-Length: 3\r\nConnection: close\r\n\r\nok!".to_vec()),
+        ]);
+        assert_eq!(fetch_https_with(&url, 1024, timeout, &delays), Some(b"ok!".to_vec()));
+        assert_eq!(hits.load(Ordering::SeqCst), 2);
+        let _ = handle.join();
+
+        // 5. Abrupt TCP drop on 1st attempt -> 200 on 2nd recovers.
+        let (url, hits, handle) = serve_script(vec![
+            Step::Drop,
+            Step::Reply(b"HTTP/1.1 200 OK\r\nContent-Length: 3\r\nConnection: close\r\n\r\nyes".to_vec()),
+        ]);
+        assert_eq!(fetch_https_with(&url, 1024, timeout, &delays), Some(b"yes".to_vec()));
+        assert_eq!(hits.load(Ordering::SeqCst), 2);
+        let _ = handle.join();
+
+        // 6. ETOOLARGE and empty 200 body stop immediately without retry.
+        let (url, hits, handle) = serve_script(vec![
+            Step::Reply(b"HTTP/1.1 200 OK\r\nContent-Length: 10\r\nConnection: close\r\n\r\n0123456789".to_vec()),
+        ]);
+        assert_eq!(fetch_https_with(&url, 4, timeout, &delays), None);
+        assert_eq!(hits.load(Ordering::SeqCst), 1);
+        let _ = handle.join();
+
+        let (url, hits, handle) = serve_script(vec![
+            Step::Reply(b"HTTP/1.1 200 OK\r\nContent-Length: 0\r\nConnection: close\r\n\r\n".to_vec()),
+        ]);
+        assert_eq!(fetch_https_with(&url, 1024, timeout, &delays), None);
+        assert_eq!(hits.load(Ordering::SeqCst), 1);
+        let _ = handle.join();
     }
 }
 

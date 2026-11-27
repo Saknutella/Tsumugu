@@ -7571,6 +7571,7 @@ function setupVoiceSettings() {
     const proxySave = document.getElementById('voice-proxy-save');
     const proxyClear = document.getElementById('voice-proxy-clear');
     const proxyStatus = document.getElementById('voice-proxy-status');
+    const dlsiteLocaleSelect = document.getElementById('voice-dlsite-locale');
     const downloadFileConcurrency = document.getElementById('voice-download-file-concurrency');
     const downloadThreadsPerFile = document.getElementById('voice-download-threads-per-file');
     let appliedProxy = null;
@@ -7749,9 +7750,15 @@ function setupVoiceSettings() {
         if (downloadThreadsPerFile) downloadThreadsPerFile.value = String(settings.threadsPerFile);
     }
 
+    function renderDlsiteLocale() {
+        if (!dlsiteLocaleSelect) return;
+        dlsiteLocaleSelect.value = voiceServerSettings.get().dlsiteLocale || '';
+    }
+
     function renderAll() {
         renderServers();
         renderProxy();
+        renderDlsiteLocale();
         renderPath();
         renderDownloadSettings();
     }
@@ -7868,10 +7875,17 @@ function setupVoiceSettings() {
     });
 
     window.addEventListener('voice-settings-changed', (event) => {
-        if (event.detail?.key === 'servers') renderServers();
-        else if (event.detail?.key === 'initialPath') renderPath();
+        if (event.detail?.key === 'servers') {
+            renderServers();
+            renderDlsiteLocale();
+        } else if (event.detail?.key === 'initialPath') renderPath();
     });
     document.addEventListener('monochrome:language-changed', renderAll);
+
+    dlsiteLocaleSelect?.addEventListener('change', () => {
+        voiceServerSettings.set({ dlsiteLocale: dlsiteLocaleSelect.value });
+        renderDlsiteLocale();
+    });
 
     downloadFileConcurrency?.addEventListener('change', () => {
         setVoiceDownloadSettings({ fileConcurrency: Number(downloadFileConcurrency.value) || 2 });

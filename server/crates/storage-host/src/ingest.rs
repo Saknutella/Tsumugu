@@ -11,6 +11,7 @@
 //! candidate root and any reparse point on the way, and the cover entry gets a
 //! synthetic `cover/<name>` logical path so it cannot collide with a scanned file.
 
+use std::io::Read;
 use std::path::{Path, PathBuf};
 
 use storage_core::error::{Error, Result};
@@ -21,6 +22,251 @@ use storage_core::library::{ImportOutcome, Library, MergeOutcome, SourceRecord};
 use storage_core::paths;
 use rusqlite::OptionalExtension;
 use serde_json::{json, Map, Value};
+
+const MAX_CHARSET_SNIFF_BYTES: usize = 64 * 1024;
+
+/// Text/subtitle MIME types whose bytes may need a `charset=` parameter so
+/// browsers do not default legacy Shift-JIS/GBK files to UTF-8 (docs/22 §A1).
+fn is_text_charset_mime(base: &str) -> bool {
+    matches!(
+        base,
+        "text/plain" | "text/vtt" | "text/x-ssa" | "text/markdown" | "application/x-subrip"
+    )
+}
+
+/// Detect the character encoding of a text/subtitle prefix.
+///
+/// Returns `None` when the sample is empty, contains non-BOM NUL bytes (likely
+/// binary), or `chardetng` is not confident — guessing a wrong charset is harder
+/// to debug than leaving the MIME bare.
+pub fn detect_charset(sample: &[u8], truncated: bool) -> Option<String> {
+    if sample.is_empty() {
+        return None;
+    }
+    if let Some((encoding, _)) = encoding_rs::Encoding::for_bom(sample) {
+        return Some(encoding.name().to_ascii_lowercase());
+    }
+    if sample.contains(&0) {
+        return None;
+    }
+    // ISO-2022-JP uses ESC (0x1B) sequences inside 7-bit ASCII bytes, which
+    // `std::str::from_utf8` would falsely accept as UTF-8.
+    if !sample.contains(&0x1b) {
+        match std::str::from_utf8(sample) {
+            Ok(_) => return Some("utf-8".to_string()),
+            Err(error) if truncated && error.error_len().is_none() && error.valid_up_to() > 0 => {
+                return Some("utf-8".to_string());
+            }
+            Err(_) => {}
+        }
+    }
+    let mut detector = chardetng::EncodingDetector::new();
+    detector.feed(sample, !truncated);
+    let (encoding, confident) = detector.guess_assess(None, true);
+    if !confident {
+        return None;
+    }
+    if !truncated {
+        let (_, had_errors) = encoding.decode_without_bom_handling(sample);
+        if had_errors {
+            return None;
+        }
+    }
+    // chardetng 0.1.17 initializes `max = 0` in `guess_assess` and falls back to
+    // `WINDOWS_1252` with `confident = true` when all candidates reject or score <= 0.
+    // `encoding_rs::WINDOWS_1252` passes C1 bytes through without error, so reject
+    // the 5 bytes unmapped in Windows-1252 (`class == 255` in chardetng itself).
+    if encoding == encoding_rs::WINDOWS_1252
+        && sample
+            .iter()
+            .any(|&b| matches!(b, 0x81 | 0x8d | 0x8f | 0x90 | 0x9d))
+    {
+        return None;
+    }
+    Some(encoding.name().to_ascii_lowercase())
+}
+
+fn sniff_file_charset(path: &Path) -> Option<String> {
+    let file = std::fs::File::open(path).ok()?;
+    let mut buffer = Vec::with_capacity(8192);
+    file.take(MAX_CHARSET_SNIFF_BYTES as u64 + 1)
+        .read_to_end(&mut buffer)
+        .ok()?;
+    let truncated = buffer.len() > MAX_CHARSET_SNIFF_BYTES;
+    let slice = if truncated {
+        &buffer[..MAX_CHARSET_SNIFF_BYTES]
+    } else {
+        &buffer[..]
+    };
+    detect_charset(slice, truncated)
+}
+
+fn mime_for_file(name: &str, path: &Path) -> String {
+    let base = mime_for(name);
+    if !is_text_charset_mime(&base) {
+        return base;
+    }
+    match sniff_file_charset(path) {
+        Some(charset) => format!("{base}; charset={charset}"),
+        None => base,
+    }
+}
+
+/// Resolve the on-disk path of an existing `entry` row for startup migration,
+/// mirroring `media::resolve_asset`'s containment rules.
+fn resolve_entry_file_for_migration(
+    data_root: &Path,
+    source_root: Option<&Path>,
+    original_path: Option<&str>,
+    rel_path: Option<&str>,
+) -> Option<PathBuf> {
+    let virtual_source = rel_path.map(|value| value.starts_with("source/")).unwrap_or(false);
+    let source_only = original_path.map(|value| !value.is_empty()).unwrap_or(false)
+        && (rel_path.is_none() || virtual_source);
+
+    let file = if source_only {
+        let original = original_path.unwrap_or("");
+        let resolved = layout::resolve_stored_path(source_root, original)?;
+        match source_root {
+            Some(root) if paths::is_inside(root, &resolved) => resolved,
+            _ => return None,
+        }
+    } else {
+        let rel = rel_path.unwrap_or("");
+        if rel.is_empty() || rel.contains("..") {
+            return None;
+        }
+        let candidate = data_root.join(rel.replace('/', std::path::MAIN_SEPARATOR_STR));
+        if !paths::is_inside(data_root, &candidate) {
+            return None;
+        }
+        candidate
+    };
+
+    let info = std::fs::symlink_metadata(&file).ok()?;
+    if info.file_type().is_symlink() || !info.is_file() {
+        return None;
+    }
+    Some(file)
+}
+
+/// Idempotently backfill `charset=` on pre-existing bare text/subtitle rows
+/// across `entry`, `track_rendition`, and linked `asset` rows.
+pub fn migrate_text_charsets(
+    connection: &rusqlite::Connection,
+    data_root: &Path,
+    source_root: Option<&Path>,
+) -> Result<usize> {
+    struct Row {
+        entry_id: String,
+        entry_mime: String,
+        original_path: Option<String>,
+        asset_id: Option<String>,
+        rel_path: Option<String>,
+        asset_mime: Option<String>,
+    }
+
+    let rows: Vec<Row> = {
+        let mut statement = connection.prepare(
+            "SELECT e.entry_id, e.mime, e.original_path, a.asset_id, a.rel_path, a.mime
+             FROM entry e
+             LEFT JOIN asset_ref r ON r.entry_id = e.entry_id AND r.role = 'primary'
+             LEFT JOIN asset a ON a.asset_id = r.asset_id
+             WHERE e.mime IN ('text/plain', 'text/vtt', 'text/x-ssa', 'text/markdown', 'application/x-subrip')
+                OR (e.mime LIKE '%; charset=%'
+                    AND (a.mime IN ('text/plain', 'text/vtt', 'text/x-ssa', 'text/markdown', 'application/x-subrip')
+                         OR EXISTS (
+                             SELECT 1 FROM track_rendition tr
+                             WHERE tr.entry_id = e.entry_id
+                               AND tr.mime IN ('text/plain', 'text/vtt', 'text/x-ssa', 'text/markdown', 'application/x-subrip')
+                         )))",
+        )?;
+        let collected = statement
+            .query_map([], |row| {
+                Ok(Row {
+                    entry_id: row.get(0)?,
+                    entry_mime: row.get(1)?,
+                    original_path: row.get(2)?,
+                    asset_id: row.get(3)?,
+                    rel_path: row.get(4)?,
+                    asset_mime: row.get(5)?,
+                })
+            })?
+            .collect::<rusqlite::Result<Vec<_>>>()?;
+        collected
+    };
+
+    if rows.is_empty() {
+        return Ok(0);
+    }
+
+    let mut updates: Vec<(String, String, Option<String>)> = Vec::new();
+    for row in rows {
+        let base = row.entry_mime.split(';').next().unwrap_or(&row.entry_mime).trim();
+        if !is_text_charset_mime(base) {
+            continue;
+        }
+        if row.entry_mime.contains("charset=") {
+            updates.push((row.entry_id, row.entry_mime, row.asset_id));
+            continue;
+        }
+        let Some(file) = resolve_entry_file_for_migration(
+            data_root,
+            source_root,
+            row.original_path.as_deref(),
+            row.rel_path.as_deref(),
+        ) else {
+            continue;
+        };
+        let Some(charset) = sniff_file_charset(&file) else {
+            continue;
+        };
+        let next_mime = format!("{base}; charset={charset}");
+        let _ = row.asset_mime;
+        updates.push((row.entry_id, next_mime, row.asset_id));
+    }
+
+    if updates.is_empty() {
+        return Ok(0);
+    }
+
+    connection.execute_batch("BEGIN IMMEDIATE")?;
+    let outcome = (|| -> Result<usize> {
+        let mut count = 0usize;
+        for (entry_id, mime, asset_id) in updates {
+            let entry_changed = connection.execute(
+                "UPDATE entry SET mime = ?1 WHERE entry_id = ?2 AND mime != ?1",
+                rusqlite::params![mime, entry_id],
+            )?;
+            let rendition_changed = connection.execute(
+                "UPDATE track_rendition SET mime = ?1 WHERE entry_id = ?2 AND (mime IS NULL OR mime != ?1)",
+                rusqlite::params![mime, entry_id],
+            )?;
+            let asset_changed = if let Some(asset_id) = asset_id {
+                connection.execute(
+                    "UPDATE asset SET mime = ?1 WHERE asset_id = ?2 AND (mime IS NULL OR mime = '' OR mime NOT LIKE '%charset=%')",
+                    rusqlite::params![mime, asset_id],
+                )?
+            } else {
+                0
+            };
+            if entry_changed > 0 || rendition_changed > 0 || asset_changed > 0 {
+                count += 1;
+            }
+        }
+        Ok(count)
+    })();
+    match outcome {
+        Ok(count) => {
+            connection.execute_batch("COMMIT")?;
+            Ok(count)
+        }
+        Err(error) => {
+            let _ = connection.execute_batch("ROLLBACK");
+            Err(error)
+        }
+    }
+}
 
 /// MIME by extension, matching `MIME_BY_EXTENSION` in `ingest.mjs`.
 fn mime_for(name: &str) -> String {
@@ -263,7 +509,7 @@ pub fn source_record_from_candidate(
             "kind": if entry.kind.is_empty() { "file".to_string() } else { entry.kind.clone() },
             "sourcePath": layout::stored_source_path(source_root, &absolute),
             "absolutePath": absolute.to_string_lossy(),
-            "mime": mime_for(if entry.name.is_empty() { &logical_path } else { &entry.name }),
+            "mime": mime_for_file(if entry.name.is_empty() { &logical_path } else { &entry.name }, &absolute),
             "trackKey": entry.track_key,
             "format": entry.format,
         }));
@@ -710,5 +956,107 @@ mod tests {
         assert_ne!(first, entry_id_for("mp3/02.mp3"));
         assert!(first.starts_with("local-entry-"));
         assert_eq!(first.len(), "local-entry-".len() + 24);
+    }
+
+    #[test]
+    fn detect_charset_handles_japanese_chinese_utf_bom_and_binary() {
+        // UTF-8 (ASCII and Japanese)
+        assert_eq!(detect_charset(b"synthetic notes\n", false).as_deref(), Some("utf-8"));
+        assert_eq!(detect_charset("日本語の台本テキストです。\n".as_bytes(), false).as_deref(), Some("utf-8"));
+        // UTF-8 split at a multi-byte boundary when truncated
+        let utf8_jp = "あいうえお".as_bytes();
+        assert_eq!(detect_charset(&utf8_jp[..7], true).as_deref(), Some("utf-8"));
+        // BOMs
+        assert_eq!(detect_charset(b"\xEF\xBB\xBFhello", false).as_deref(), Some("utf-8"));
+        assert_eq!(detect_charset(b"\xFF\xFEh\x00i\x00", false).as_deref(), Some("utf-16le"));
+        assert_eq!(detect_charset(b"\xFE\xFF\x00h\x00i", false).as_deref(), Some("utf-16be"));
+
+        // Shift-JIS
+        let (sjis, _, _) = encoding_rs::SHIFT_JIS.encode("同人音声の台本テキストです。第1話「はじまり」\r\nよろしくお願いします。");
+        assert_eq!(detect_charset(&sjis, false).as_deref(), Some("shift_jis"));
+
+        // EUC-JP
+        let (euc_jp, _, _) = encoding_rs::EUC_JP.encode("[00:01.00]日本語の字幕テストです。\n[00:05.00]次のセリフが続きます。\n");
+        assert_eq!(detect_charset(&euc_jp, false).as_deref(), Some("euc-jp"));
+
+        // ISO-2022-JP (7-bit with ESC 0x1B)
+        let (iso_jp, _, _) = encoding_rs::ISO_2022_JP.encode("日本語の台本テストです。");
+        assert_eq!(detect_charset(&iso_jp, false).as_deref(), Some("iso-2022-jp"));
+
+        // GBK
+        let (gbk, _, _) = encoding_rs::GBK.encode("这是一段简体中文音声附带说明文本，用于验证GBK编码识别。");
+        assert_eq!(detect_charset(&gbk, false).as_deref(), Some("gbk"));
+
+        // Empty, NUL-containing binary, and truncated/corrupt multi-byte sequences stay None
+        assert_eq!(detect_charset(b"", false), None);
+        assert_eq!(detect_charset(b"abc\x00def", false), None);
+        assert_eq!(detect_charset(&[0x81], false), None);
+        let mut corrupt_sjis = sjis.to_vec();
+        corrupt_sjis.push(0x81);
+        assert_eq!(detect_charset(&corrupt_sjis, false), None);
+    }
+
+    #[test]
+    fn ingest_candidate_records_detected_charset_for_text_and_subtitles() {
+        let (mut library, source) = fixture();
+        let work_dir = source.join("[RJ01678051] [Circle] title (CV A)");
+        let (sjis_txt, _, _) = encoding_rs::SHIFT_JIS.encode("同人音声の説明ファイルです。\r\n注意事項をお読みください。");
+        let (sjis_lrc, _, _) = encoding_rs::SHIFT_JIS.encode("[00:01.20]おはよう、今日もいい天気だね。\r\n[00:04.50]いっしょに出かけよう。\r\n");
+        let (gbk_srt, _, _) = encoding_rs::GBK.encode("1\r\n00:00:01,000 --> 00:00:04,000\r\n这是一条简体中文字幕测试文本。\r\n");
+        std::fs::write(work_dir.join("readme.txt"), &sjis_txt).unwrap();
+        std::fs::write(work_dir.join("01.lrc"), &sjis_lrc).unwrap();
+        std::fs::write(work_dir.join("01.srt"), &gbk_srt).unwrap();
+        std::fs::write(work_dir.join("empty.txt"), b"").unwrap();
+
+        let mut cand = candidate(&source);
+        cand.entries.push(CandidateEntry {
+            logical_path: "readme.txt".to_string(),
+            absolute_path: work_dir.join("readme.txt"),
+            name: "readme.txt".to_string(),
+            kind: "text".to_string(),
+            track_key: None,
+            format: None,
+        });
+        cand.entries.push(CandidateEntry {
+            logical_path: "01.lrc".to_string(),
+            absolute_path: work_dir.join("01.lrc"),
+            name: "01.lrc".to_string(),
+            kind: "subtitle".to_string(),
+            track_key: None,
+            format: None,
+        });
+        cand.entries.push(CandidateEntry {
+            logical_path: "01.srt".to_string(),
+            absolute_path: work_dir.join("01.srt"),
+            name: "01.srt".to_string(),
+            kind: "subtitle".to_string(),
+            track_key: None,
+            format: None,
+        });
+        cand.entries.push(CandidateEntry {
+            logical_path: "empty.txt".to_string(),
+            absolute_path: work_dir.join("empty.txt"),
+            name: "empty.txt".to_string(),
+            kind: "text".to_string(),
+            track_key: None,
+            format: None,
+        });
+
+        let outcome = ingest_candidate(&mut library, &cand, None, &[source.clone()], &source).unwrap();
+        let entries = outcome.work["entries"].as_array().unwrap();
+        let mime_of = |logical: &str| -> String {
+            entries
+                .iter()
+                .find(|e| e["logicalPath"] == logical)
+                .unwrap()["mime"]
+                .as_str()
+                .unwrap()
+                .to_string()
+        };
+        assert_eq!(mime_of("01.mp3"), "audio/mpeg");
+        assert_eq!(mime_of("readme.txt"), "text/plain; charset=shift_jis");
+        assert_eq!(mime_of("01.lrc"), "text/plain; charset=shift_jis");
+        assert_eq!(mime_of("01.srt"), "application/x-subrip; charset=gbk");
+        assert_eq!(mime_of("empty.txt"), "text/plain");
     }
 }

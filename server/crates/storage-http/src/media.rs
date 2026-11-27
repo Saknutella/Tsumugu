@@ -126,12 +126,20 @@ pub fn resolve_asset(
     // as absent, so an asset row with an empty mime must fall through to the entry
     // mime; `Option::or` alone kept the empty string and served a blank
     // `Content-Type`, which some players refuse.
-    let mime = asset
+    //
+    // Also prefer `entry.mime` when it carries a detected `charset=` parameter
+    // and an older shared `asset` row only kept the bare essence (`text/plain`).
+    let asset_mime = asset
         .as_ref()
         .and_then(|(_, _, mime)| mime.clone())
-        .filter(|value| !value.is_empty())
-        .or_else(|| entry_mime.filter(|value| !value.is_empty()))
-        .unwrap_or_else(|| "application/octet-stream".to_string());
+        .filter(|value| !value.is_empty());
+    let entry_mime = entry_mime.filter(|value| !value.is_empty());
+    let mime = match (&asset_mime, &entry_mime) {
+        (Some(a), Some(e)) if !has_charset_param(a) && has_charset_param(e) && same_base_mime(a, e) => e.clone(),
+        (Some(a), _) => a.clone(),
+        (None, Some(e)) => e.clone(),
+        (None, None) => "application/octet-stream".to_string(),
+    };
     Some(ResolvedAsset {
         entry_id: internal_id,
         stable_entry_id,
@@ -140,6 +148,17 @@ pub fn resolve_asset(
         mime,
         sha256: asset.map(|(sha, _, _)| sha),
     })
+}
+
+fn has_charset_param(mime: &str) -> bool {
+    mime.split(';')
+        .skip(1)
+        .any(|part| part.trim().to_ascii_lowercase().starts_with("charset="))
+}
+
+fn same_base_mime(left: &str, right: &str) -> bool {
+    let base = |value: &str| value.split(';').next().unwrap_or(value).trim().to_ascii_lowercase();
+    base(left) == base(right)
 }
 
 /// Resolve a post file id to a readable file under the source root.
@@ -390,6 +409,59 @@ mod tests {
         assert!(resolve_asset(&connection, &data_root, Some(&root), &file_id).is_some());
         assert!(storage_core::posts::soft_delete_post(&connection, "p1", "later").unwrap());
         assert!(resolve_asset(&connection, &data_root, Some(&root), &file_id).is_none());
+        drop(connection);
+        let _ = std::fs::remove_dir_all(root);
+    }
+
+    #[test]
+    fn resolve_asset_preserves_entry_charset_when_asset_mime_is_bare() {
+        let root = std::env::temp_dir().join(format!("mono-media-charset-{}", uuid::Uuid::new_v4()));
+        let source_root = root.join("source");
+        let work_dir = source_root.join("voices").join("w1");
+        std::fs::create_dir_all(&work_dir).unwrap();
+        std::fs::write(work_dir.join("notes.txt"), b"sjis-bytes").unwrap();
+        std::fs::write(work_dir.join("readme.txt"), b"sjis-bytes-2").unwrap();
+        let data_root = root.join("lib");
+        std::fs::create_dir_all(&data_root).unwrap();
+
+        let connection = Connection::open_in_memory().unwrap();
+        storage_core::schema::enable_pragmas(&connection).unwrap();
+        storage_core::schema::apply_schema(&connection, "lib").unwrap();
+        connection
+            .execute(
+                "INSERT INTO work(work_id, title, created_at, updated_at) VALUES ('w1', 'W', 'now', 'now')",
+                [],
+            )
+            .unwrap();
+        connection
+            .execute(
+                "INSERT INTO entry(entry_id, work_id, stable_entry_id, logical_path, kind, mime, original_path)
+                 VALUES ('e1', 'w1', 's1', 'notes.txt', 'text', 'text/plain; charset=shift_jis', 'voices/w1/notes.txt'),
+                        ('e2', 'w1', 's2', 'readme.txt', 'text', 'text/plain; charset=shift_jis', 'voices/w1/readme.txt')",
+                [],
+            )
+            .unwrap();
+        connection
+            .execute(
+                "INSERT INTO asset(asset_id, sha256, bytes, mime, rel_path, created_at)
+                 VALUES ('a1', 'sha1', 10, 'text/plain; charset=shift_jis', 'source/sha1', 'now'),
+                        ('a2', 'sha2', 12, 'text/plain', 'source/sha2', 'now')",
+                [],
+            )
+            .unwrap();
+        connection
+            .execute(
+                "INSERT INTO asset_ref(asset_ref_id, work_id, entry_id, asset_id, role)
+                 VALUES ('r1', 'w1', 'e1', 'a1', 'primary'),
+                        ('r2', 'w1', 'e2', 'a2', 'primary')",
+                [],
+            )
+            .unwrap();
+
+        let first = resolve_asset(&connection, &data_root, Some(&source_root), "e1").unwrap();
+        assert_eq!(first.mime, "text/plain; charset=shift_jis");
+        let second = resolve_asset(&connection, &data_root, Some(&source_root), "e2").unwrap();
+        assert_eq!(second.mime, "text/plain; charset=shift_jis");
         drop(connection);
         let _ = std::fs::remove_dir_all(root);
     }
